@@ -16,7 +16,7 @@ import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
-LOCAL_VERSION = "6.4.0"
+LOCAL_VERSION = "6.5.0"
 AUTO_UPDATE = True
 UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
@@ -99,14 +99,17 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
         .qr-modal.show { display: flex; }
         .qr-card { background: #fff; padding: 24px; border-radius: var(--radius-md); text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); transform: translateY(0); transition: transform 0.3s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
         .text-accent { color: var(--accent) !important; }
         .text-info { color: var(--info) !important; }
         .text-warning { color: var(--warning) !important; }
         .text-purple { color: var(--purple) !important; }
+        
         .import-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
         .btn-import { background: var(--bg-base); border: 1px solid var(--border); color: var(--text-main); text-decoration: none; padding: 14px 10px; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 700; text-align: center; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
         .btn-import:hover { background: var(--bg-hover); border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(133,59,206,0.15); }
         .btn-import i { font-size: 1.5rem; }
+        
         .footer { text-align: center; margin-top: 20px; font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
         .footer a { color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
         .footer a:hover { color: var(--text-main); }
@@ -863,8 +866,6 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         };
 
         Chart.defaults.color = '#a1a1aa'; Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif"; Chart.defaults.font.size = 12;
-        document.addEventListener('contextmenu', e => e.preventDefault());
-        document.addEventListener('keydown', e => { if(e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I') || (e.ctrlKey && e.key === 'u')) e.preventDefault(); });
 
         let trafficChart, hwChart, clientPieChart, clientFlowChart;
         window.clients = []; 
@@ -1221,7 +1222,6 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         }
 
         async function getSubscriptionLink(clientId) {
-            if(!backendSync.connected) return null;
             try {
                 const res = await fetch(`/api/sub/link/${encodeURIComponent(clientId)}`);
                 if(res.status === 401) return location.reload();
