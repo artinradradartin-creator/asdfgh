@@ -16,7 +16,7 @@ import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
-LOCAL_VERSION = "6.0.0"
+LOCAL_VERSION = "6.1.0"
 AUTO_UPDATE = True
 UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
@@ -35,6 +35,7 @@ XRAY_BIN = "/usr/local/bin/xray"
 
 RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "localhost")
 PROJECT_USER = os.environ.get("RAILWAY_PROJECT_NAME", "Admin")
+PANEL_PASSWORD = os.environ.get("PASS", "")
 
 RAILWAY_PORT = int(os.environ.get("PORT", 8080))
 XRAY_XHTTP_PORT = 10001
@@ -53,7 +54,7 @@ engine_running = True
 state = {
     "total_down": 0, "total_up": 0, "uptime_sec": 0,
     "speed_down_bps": 0, "speed_up_bps": 0, "cpu_pct": 0.0,
-    "mem_used_mb": 0, "mem_total_mb": 4096,
+    "mem_used_mb": 0, "mem_total_mb": 512,
     "disk_used_mb": 0, "disk_total_mb": 0,
     "load_avg": [0,0,0], "is_xray_running": False,
     "client_usage_bytes": {},
@@ -84,13 +85,12 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             --radius-lg: 16px; --radius-md: 12px; --radius-sm: 8px; 
             --transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
-        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
-        button, .btn, .btn-icon, .nav-item, .sidebar, .topbar, .modal-header, .modal-tabs, .modal-tab-btn, .tag, label.switch, .panel-title { user-select: none; }
-        input, textarea, select, .mono, pre, code, #log-output, .modal-body, td, .form-label { user-select: text; }
-        input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
-        input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
-
-        body { background-color: var(--bg-base); color: var(--text-main); font-family: 'Plus Jakarta Sans', sans-serif; font-size: 14px; display: flex; height: 100vh; min-height: 100vh; width: 100vw; overflow: hidden; -webkit-font-smoothing: antialiased; }
+        * { margin: 0; padding: 0; box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
+        ::selection { background: rgba(133, 59, 206, 0.3); color: #fff; }
+        
+        body { background-color: var(--bg-base); color: var(--text-main); font-family: 'Plus Jakarta Sans', sans-serif; font-size: 14px; display: flex; height: 100vh; min-height: 100vh; width: 100vw; overflow: hidden; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+        
+        input, textarea, select, .mono, pre, code, #log-output, td, .form-label { user-select: text; -webkit-user-select: text; }
         h1, h2, h3, h4, h5 { font-weight: 700; letter-spacing: -0.01em; color: var(--text-main); }
         .mono { font-family: 'JetBrains Mono', monospace; }
         
@@ -303,6 +303,17 @@ HTML_CONTENT = r"""<!DOCTYPE html>
 </head>
 <body>
     <div id="loader"><div class="spinner-ring"></div></div>
+    
+    <div id="auth-overlay" class="modal-overlay" style="display:none; opacity:1; z-index:100000; background: var(--bg-base); flex-direction:column; justify-content:center; align-items:center;">
+        <div class="logo-box" style="margin-bottom:24px; border:none; background:transparent; padding:0;">
+            <svg viewBox="0 0 512 512" fill="var(--accent)"><path d="M368 48H144C108.7 48 80 76.7 80 112V352c0 23.4 12.6 44.1 31.2 55.4l-24 48c-4.5 9-1.9 20.2 6.2 26.2s19.3 5.3 26.5-1.9L166.1 432H346l46.2 47.7c7.2 7.2 18.4 7.9 26.5 1.9s10.7-17.2 6.2-26.2l-24-48c18.6-11.3 31.2-32 31.2-55.4V112C432 76.7 403.3 48 368 48zM144 112H368c8.8 0 16 7.2 16 16v96H128v-96C128 119.2 135.2 112 144 112zM256 368c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32S273.7 368 256 368z"/></svg>
+            <span style="font-size:1.8rem; font-weight:800; color:#fff;">R2ray<span style="color:var(--text-muted); font-weight:500;">Panel</span></span>
+        </div>
+        <div class="modal show" style="max-width: 420px; width: 100%; margin:0 20px; position:relative; transform:none; box-shadow:0 24px 60px rgba(0,0,0,0.8);">
+            <div class="modal-header" style="justify-content:center; padding:20px;"><div class="panel-title" style="font-size:1.1rem;"><i class="fa-solid fa-lock text-accent"></i> Authentication Required</div></div>
+            <div class="modal-body" id="auth-body" style="padding:24px;"></div>
+        </div>
+    </div>
     
     <aside class="sidebar" id="sidebar">
         <div class="logo-box">
@@ -669,6 +680,42 @@ HTML_CONTENT = r"""<!DOCTYPE html>
     <div class="toast-box" id="toaster"></div>
 
     <script>
+        const passSetup = {{PASS_SETUP}};
+        const loggedIn = {{LOGGED_IN}};
+        
+        if (!passSetup) {
+            document.getElementById('auth-overlay').style.display = 'flex';
+            document.getElementById('auth-body').innerHTML = `
+                <p style="text-align:center; color:var(--text-muted); font-size:0.85rem; line-height:1.6; margin-bottom: 8px;">
+                    You need to setup a password environment key.<br><br>
+                    1. Open your project in Railway.<br>
+                    2. Go to <strong>Variables</strong> and click <strong>New Variable</strong>.<br>
+                    3. Set <code>VARIABLE_NAME</code> to <strong>PASS</strong>.<br>
+                    4. Enter your desired password and click <strong>Add</strong>.
+                </p>
+                <button class="btn btn-primary" style="width:100%; margin-top: 10px;" onclick="location.reload()"><i class="fa-solid fa-rotate"></i> Done</button>
+            `;
+        } else if (!loggedIn) {
+            document.getElementById('auth-overlay').style.display = 'flex';
+            document.getElementById('auth-body').innerHTML = `
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label class="form-label">Panel Password</label>
+                    <input type="password" class="form-control" id="pass-input" placeholder="Enter password..." onkeydown="if(event.key==='Enter') window.doLogin()">
+                </div>
+                <button class="btn btn-primary" style="width:100%;" onclick="window.doLogin()"><i class="fa-solid fa-right-to-bracket"></i> Login</button>
+            `;
+        }
+
+        window.doLogin = function() {
+            const p = document.getElementById('pass-input').value;
+            if(!p) return showToast('Enter a password', 'error');
+            fetch('/api/login', { method:'POST', body:JSON.stringify({pass: p}) })
+                .then(r=>r.json()).then(d=>{
+                if(d.ok) { document.getElementById('loader').style.opacity = '1'; document.getElementById('loader').style.visibility = 'visible'; setTimeout(() => location.reload(), 300); } 
+                else { showToast('Incorrect password', 'error'); }
+            }).catch(()=>showToast('Network error', 'error'));
+        };
+
         Chart.defaults.color = '#a1a1aa'; Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif"; Chart.defaults.font.size = 12;
         document.addEventListener('contextmenu', e => e.preventDefault());
         document.addEventListener('keydown', e => { if(e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I') || (e.ctrlKey && e.key === 'u')) e.preventDefault(); });
@@ -857,13 +904,13 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             let s = t.xrayUptimeSec || 0;
             document.getElementById('m-uptime').innerText = xrayUp ? `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60).toString().padStart(2,'0')}m` : 'Stopped';
             
-            const ramTotal = Number(t.ramTotalMb || 4096);
+            const ramTotal = Number(t.ramTotalMb || 512);
             document.getElementById('dash-load-avg').innerText = t.loadAvg.map(x=>x.toFixed(2)).join(' / ');
-            document.getElementById('dash-mem-alloc').innerText = `${Number(t.ramMb||0).toFixed(2)} / ${Number(t.ramTotalMb||4096).toFixed(2)} MB`;
+            document.getElementById('dash-mem-alloc').innerText = `${Math.round(t.ramMb||0)} / ${Math.round(t.ramTotalMb||512)} MB`;
             
             document.getElementById('hw-cpu-val').innerText = `${Number(t.cpuPct||0).toFixed(1)}%`;
             document.getElementById('hw-cpu-bar').style.width = `${Math.min(100, Number(t.cpuPct||0))}%`;
-            document.getElementById('hw-ram-val').innerText = `${Number(t.ramMb||0).toFixed(2)} MB`;
+            document.getElementById('hw-ram-val').innerText = `${Math.round(t.ramMb||0)} MB`;
             document.getElementById('hw-ram-bar').style.width = `${Math.min(100, (Number(t.ramMb||0)/ramTotal)*100)}%`;
             document.getElementById('hw-disk-val').innerText = `${t.diskUsedMb} / ${t.diskTotalMb} MB`;
             document.getElementById('hw-disk-bar').style.width = t.diskTotalMb ? `${Math.min(100, (t.diskUsedMb/t.diskTotalMb)*100)}%` : '0%';
@@ -958,6 +1005,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: serializePanelState(), reason })
                 });
+                if(res.status === 401) return location.reload();
                 const data = await res.json();
                 if(!data.ok) throw new Error(data.error || 'state sync failed');
             } catch (err) { showToast(`Backend sync failed: ${err.message || err}`, 'error'); } 
@@ -1026,6 +1074,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(!backendSync.connected) return null;
             try {
                 const res = await fetch(`/api/sub/link/${encodeURIComponent(clientId)}`);
+                if(res.status === 401) return location.reload();
                 const data = await res.json();
                 if(data.ok && data.link) return data.link;
             } catch(e) {} return null;
@@ -1187,9 +1236,9 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                 if(trans === 'ws') {
                     link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=http/1.1&type=ws&host=${window.PORT_DOMAIN}&path=%2Fws#${name}`;
                 } else if (trans === 'grpc') {
-                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=h2&type=grpc&serviceName=grpc&mode=multi#${name}`;
+                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=h2&type=grpc&serviceName=grpc#${name}`;
                 } else {
-                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=h2,http/1.1&type=xhttp&host=${window.PORT_DOMAIN}&path=%2Fxray&mode=packet-up#${name}`;
+                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=http/1.1&type=xhttp&host=${window.PORT_DOMAIN}&path=%2Fxray&mode=packet-up#${name}`;
                 }
             } else {
                 let text = encodeURIComponent(window.resolvePlaceholders(entry.name, client));
@@ -1214,9 +1263,9 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             const cfg = {
                 log: { level: adv.logLevel || 'warning', access: adv.accessLog ? "access.log" : "none", error: "xray.log" },
                 inbounds: [
-                    { tag: "vless-xhttp", port: 10001, protocol: "vless", streamSettings: { network: "xhttp", sockopt: { tcpFastOpen: true } } },
-                    { tag: "vless-ws", port: 10003, protocol: "vless", streamSettings: { network: "ws", sockopt: { tcpFastOpen: true } } },
-                    { tag: "vless-grpc", port: 10004, protocol: "vless", streamSettings: { network: "grpc", sockopt: { tcpFastOpen: true } } }
+                    { tag: "vless-xhttp", port: 10001, protocol: "vless", streamSettings: { network: "xhttp", xhttpSettings: { mode: "packet-up", path: "/xray" }, sockopt: { tcpFastOpen: true } } },
+                    { tag: "vless-ws", port: 10003, protocol: "vless", streamSettings: { network: "ws", wsSettings: { path: "/ws" }, sockopt: { tcpFastOpen: true } } },
+                    { tag: "vless-grpc", port: 10004, protocol: "vless", streamSettings: { network: "grpc", grpcSettings: { serviceName: "grpc" }, sockopt: { tcpFastOpen: true } } }
                 ],
                 outbounds: [ { tag: "direct", protocol: "freedom" }, { tag: "block", protocol: "blackhole" } ]
             };
@@ -1226,7 +1275,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
 
         window.onload = () => {
             setTimeout(() => { document.getElementById('loader').style.opacity = '0'; setTimeout(() => { document.getElementById('loader').style.visibility = 'hidden'; ensureCharts(); }, 400); }, 400);
-            if(window.initBackendSync) window.initBackendSync();
+            if(window.initBackendSync && loggedIn) window.initBackendSync();
         };
     </script>
     <script src="/panel-wiring.js"></script>
@@ -1242,6 +1291,7 @@ window.initBackendSync = async function() {
         if(backendSync.syncing) return;
         try {
             let res = await fetch('/api/state');
+            if(res.status === 401) return location.reload();
             if(!res.ok) throw new Error('Network error');
             let data = await res.json();
             if(data.ok) {
@@ -1272,6 +1322,7 @@ window.setXrayStatus = async function(action) {
     if(action !== 'clear_logs') showToast('Executing ' + action + '...', 'info');
     try {
         let res = await fetch('/api/action', { method: 'POST', body: JSON.stringify({action}), headers: {'Content-Type': 'application/json'} });
+        if(res.status === 401) return location.reload();
         if(res.ok && action !== 'clear_logs') showToast('Command completed: ' + action, 'success');
         else if(!res.ok) showToast('Command failed', 'error');
     } catch(e) { showToast('Network error', 'error'); }
@@ -1390,7 +1441,7 @@ def get_combined_state():
             "connections": state.get("conns", 0),
             "cpuPct": state.get("cpu_pct", 0),
             "ramMb": state.get("mem_used_mb", 0),
-            "ramTotalMb": state.get("mem_total_mb", 4096),
+            "ramTotalMb": state.get("mem_total_mb", 512),
             "diskUsedMb": state.get("disk_used_mb", 0),
             "diskTotalMb": state.get("disk_total_mb", 0),
             "loadAvg": state.get("load_avg", [0, 0, 0]),
@@ -1411,45 +1462,6 @@ def get_combined_state():
         **telemetry
     })
 
-def save_panel_state(new_state):
-    try:
-        with file_lock:
-            tmp = PANEL_STATE_FILE + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(new_state, f, indent=2)
-            os.rename(tmp, PANEL_STATE_FILE)
-    except Exception: pass
-
-def commit_client_usage():
-    with state_lock:
-        usage_diffs = state.get("client_usage_bytes", {})
-        if usage_diffs:
-            state["client_usage_bytes"] = {}
-        d = state["total_down"]
-        u = state["total_up"]
-        s = state["uptime_sec"]
-        tc = state["total_cost"]
-        
-    with file_lock:
-        try:
-            if not os.path.exists(PANEL_STATE_FILE): pstate = {}
-            else:
-                with open(PANEL_STATE_FILE, "r") as f: pstate = json.load(f)
-            if usage_diffs:
-                for c in pstate.get("clients", []):
-                    uuid_id = c.get("id")
-                    if uuid_id in usage_diffs:
-                        c["usage"] = c.get("usage", 0.0) + (usage_diffs[uuid_id] / 1073741824.0)
-            pstate["telemetry"] = {"total_down": d, "total_up": u, "uptime_sec": s, "total_cost": tc}
-            tmp = PANEL_STATE_FILE + ".tmp"
-            with open(tmp, "w") as f: json.dump(pstate, f, indent=2)
-            os.rename(tmp, PANEL_STATE_FILE)
-        except Exception:
-            if usage_diffs:
-                with state_lock:
-                    for k, v in usage_diffs.items():
-                        state["client_usage_bytes"][k] = state["client_usage_bytes"].get(k, 0) + v
-
 def format_vless_link(client_id, client_name, transport="xhttp", ip=None):
     tag = urllib.parse.quote(client_name)
     addr = ip if ip else RAILWAY_PUBLIC_DOMAIN
@@ -1457,9 +1469,9 @@ def format_vless_link(client_id, client_name, transport="xhttp", ip=None):
     if transport == "ws":
         return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=http/1.1&type=ws&host={sni}&path=%2Fws#{tag}"
     elif transport == "grpc":
-        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=h2&type=grpc&serviceName=grpc&mode=multi#{tag}"
+        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=h2&type=grpc&serviceName=grpc#{tag}"
     else:
-        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=h2,http/1.1&type=xhttp&host={sni}&path=%2Fxray&mode=packet-up#{tag}"
+        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=http/1.1&type=xhttp&host={sni}&path=%2Fxray&mode=packet-up#{tag}"
 
 def format_info_link(info_text):
     tag = urllib.parse.quote(info_text)
@@ -1523,22 +1535,58 @@ def handle_api_action(data):
         try: open(XRAY_LOG, "w").close()
         except Exception: pass
 
+def get_auth_cookie(headers):
+    cookies = headers.get('Cookie', '')
+    for c in cookies.split(';'):
+        c = c.strip()
+        if c.startswith('auth='):
+            return urllib.parse.unquote(c[5:])
+    return ""
+
 class WebUIHandler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     
+    def check_auth(self):
+        if not PANEL_PASSWORD: return False
+        return get_auth_cookie(self.headers) == PANEL_PASSWORD
+    
     def do_GET(self):
         try:
+            if self.path.startswith('/sub/'):
+                token = self.path.split('/')[-1]
+                token += "=" * ((4 - len(token) % 4) % 4)
+                client_id = base64.urlsafe_b64decode(token).decode("utf-8")
+                
+                sub_content = generate_sub_for_client(client_id)
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                self.end_headers()
+                self.wfile.write(sub_content.encode("utf-8"))
+                return
+
             if self.path == '/':
                 self.send_response(200)
                 self.send_header("Content-type", "text/html; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(HTML_CONTENT.encode())
-            elif self.path == '/panel-wiring.js':
+                html = HTML_CONTENT.replace("{{PASS_SETUP}}", "true" if PANEL_PASSWORD else "false")
+                html = html.replace("{{LOGGED_IN}}", "true" if self.check_auth() else "false")
+                self.wfile.write(html.encode())
+                return
+                
+            if self.path == '/panel-wiring.js':
                 self.send_response(200)
                 self.send_header("Content-type", "application/javascript")
                 self.end_headers()
                 self.wfile.write(PANEL_WIRING_JS.encode())
-            elif self.path == '/api/state':
+                return
+
+            if not self.check_auth():
+                self.send_response(401)
+                self.end_headers()
+                return
+
+            if self.path == '/api/state':
                 self.send_response(200)
                 self.send_header("Content-type", "application/json")
                 self.end_headers()
@@ -1550,17 +1598,6 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"ok": True, "link": link}).encode())
-            elif self.path.startswith('/sub/'):
-                token = self.path.split('/')[-1]
-                token += "=" * ((4 - len(token) % 4) % 4)
-                client_id = base64.urlsafe_b64decode(token).decode("utf-8")
-                
-                sub_content = generate_sub_for_client(client_id)
-                self.send_response(200)
-                self.send_header("Content-type", "text/plain; charset=utf-8")
-                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-                self.end_headers()
-                self.wfile.write(sub_content.encode("utf-8"))
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -1568,6 +1605,11 @@ class WebUIHandler(BaseHTTPRequestHandler):
         
     def do_PUT(self):
         try:
+            if not self.check_auth():
+                self.send_response(401)
+                self.end_headers()
+                return
+
             if self.path == '/api/state':
                 length = int(self.headers.get('Content-Length', 0))
                 body = self.rfile.read(length).decode()
@@ -1609,6 +1651,27 @@ class WebUIHandler(BaseHTTPRequestHandler):
         
     def do_POST(self):
         try:
+            if self.path == '/api/login':
+                length = int(self.headers.get('Content-Length', 0))
+                data = json.loads(self.rfile.read(length).decode())
+                if data.get("pass") == PANEL_PASSWORD:
+                    self.send_response(200)
+                    self.send_header('Set-Cookie', f'auth={urllib.parse.quote(PANEL_PASSWORD)}; Path=/; HttpOnly; Max-Age=31536000')
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok":true}')
+                else:
+                    self.send_response(401)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok":false}')
+                return
+                
+            if not self.check_auth():
+                self.send_response(401)
+                self.end_headers()
+                return
+
             if self.path == '/api/action':
                 length = int(self.headers.get('Content-Length', 0))
                 body = self.rfile.read(length).decode()
@@ -1648,14 +1711,12 @@ async def multiplexer(reader, writer):
             return
 
         target_port = WEB_PORT
-        try:
-            if b" /xray" in data:
-                target_port = XRAY_XHTTP_PORT
-            elif b" /ws" in data:
-                target_port = XRAY_WS_PORT
-            elif b" /grpc" in data or b"application/grpc" in data:
-                target_port = XRAY_GRPC_PORT
-        except: pass
+        if data.startswith(b"PRI * HTTP/2.0"):
+            target_port = XRAY_GRPC_PORT
+        elif b" /xray" in data:
+            target_port = XRAY_XHTTP_PORT
+        elif b" /ws" in data:
+            target_port = XRAY_WS_PORT
 
         t_reader, t_writer = await asyncio.open_connection('127.0.0.1', target_port)
         t_writer.write(data)
@@ -1687,22 +1748,14 @@ def start_multiplexer():
         loop.run_forever()
     threading.Thread(target=run, daemon=True).start()
 
-last_cpu_idle = 0.0
-last_cpu_total = 0.0
-
-def sample_cpu_pct():
-    global last_cpu_idle, last_cpu_total
+def sample_cpu_pct_host():
     try:
         with open('/proc/stat') as f: line = f.readline()
         fields = [float(column) for column in line.strip().split()[1:]]
         idle = fields[3] + fields[4]
         total = sum(fields)
-        idle_delta = idle - last_cpu_idle
-        total_delta = total - last_cpu_total
-        last_cpu_idle, last_cpu_total = idle, total
-        if total_delta <= 0: return 0.0
-        return min(100.0, max(0.0, 100.0 * (1.0 - idle_delta / total_delta)))
-    except Exception: return 0.0
+        return idle, total
+    except Exception: return 0.0, 0.0
 
 def fetch_ip_info():
     try:
@@ -1714,29 +1767,107 @@ def fetch_ip_info():
             state["ip_ipv4"] = data.get("ip", "Unknown")
     except Exception: pass
 
+def commit_client_usage():
+    with state_lock:
+        usage_diffs = state.get("client_usage_bytes", {})
+        if usage_diffs:
+            state["client_usage_bytes"] = {}
+        d = state["total_down"]
+        u = state["total_up"]
+        s = state["uptime_sec"]
+        tc = state["total_cost"]
+        
+    with file_lock:
+        try:
+            if not os.path.exists(PANEL_STATE_FILE): pstate = {}
+            else:
+                with open(PANEL_STATE_FILE, "r") as f: pstate = json.load(f)
+            if usage_diffs:
+                for c in pstate.get("clients", []):
+                    uuid_id = c.get("id")
+                    if uuid_id in usage_diffs:
+                        c["usage"] = c.get("usage", 0.0) + (usage_diffs[uuid_id] / 1073741824.0)
+            pstate["telemetry"] = {"total_down": d, "total_up": u, "uptime_sec": s, "total_cost": tc}
+            tmp = PANEL_STATE_FILE + ".tmp"
+            with open(tmp, "w") as f: json.dump(pstate, f, indent=2)
+            os.rename(tmp, PANEL_STATE_FILE)
+        except Exception:
+            if usage_diffs:
+                with state_lock:
+                    for k, v in usage_diffs.items():
+                        state["client_usage_bytes"][k] = state["client_usage_bytes"].get(k, 0) + v
+
 def system_monitor_thread():
     global state
-
+    last_cpu_usec = None
+    last_host_idle = 0.0
+    last_host_total = 0.0
+    last_time = time.time()
+    
     tick = 0
     while engine_running:
         tick += 1
         try:
-            cpu_val = sample_cpu_pct()
+            now = time.time()
+            dt = now - last_time
+            last_time = now
+
+            used_mb = 0
+            tot_mb = 512
+            try:
+                if os.path.exists('/sys/fs/cgroup/memory.current'):
+                    with open('/sys/fs/cgroup/memory.current') as f:
+                        used_mb = int(f.read().strip()) / 1048576.0
+                    with open('/sys/fs/cgroup/memory.max') as f:
+                        val = f.read().strip()
+                        if val != 'max': tot_mb = int(val) / 1048576.0
+                elif os.path.exists('/sys/fs/cgroup/memory/memory.usage_in_bytes'):
+                    with open('/sys/fs/cgroup/memory/memory.usage_in_bytes') as f:
+                        used_mb = int(f.read().strip()) / 1048576.0
+                    with open('/sys/fs/cgroup/memory/memory.limit_in_bytes') as f:
+                        val = int(f.read().strip())
+                        if val < 1024*1024*1024*1024: tot_mb = val / 1048576.0
+                else:
+                    with open('/proc/meminfo') as f:
+                        mem = {}
+                        for line in f:
+                            parts = line.split()
+                            if len(parts) >= 2: mem[parts[0].strip(':')] = int(parts[1])
+                    used_mb = (mem.get('MemTotal', 0) - mem.get('MemAvailable', mem.get('MemFree', 0))) / 1024.0
+                    tot_mb = mem.get('MemTotal', 512000) / 1024.0
+            except Exception: pass
+
+            usec = None
+            try:
+                if os.path.exists('/sys/fs/cgroup/cpu.stat'):
+                    with open('/sys/fs/cgroup/cpu.stat') as f:
+                        for line in f:
+                            if line.startswith('usage_usec'):
+                                usec = int(line.split()[1])
+                                break
+                elif os.path.exists('/sys/fs/cgroup/cpuacct/cpuacct.usage'):
+                    with open('/sys/fs/cgroup/cpuacct/cpuacct.usage') as f:
+                        usec = int(f.read().strip()) // 1000
+            except Exception: pass
+
+            vcpus = 0.0
+            cpu_pct = 0.0
+            if usec is not None:
+                if last_cpu_usec is not None and dt > 0:
+                    du = usec - last_cpu_usec
+                    vcpus = (du / 1000000.0) / dt
+                    cpu_pct = vcpus * 100.0
+                last_cpu_usec = usec
+            else:
+                idle, total = sample_cpu_pct_host()
+                if last_host_total > 0 and total > last_host_total:
+                    cpu_pct = min(100.0, max(0.0, 100.0 * (1.0 - (idle - last_host_idle) / (total - last_host_total))))
+                last_host_idle, last_host_total = idle, total
+                vcpus = (cpu_pct / 100.0) * 2.0 
+            
             try: la = list(os.getloadavg())
             except Exception: la = [0,0,0]
-            
-            used = 0
-            tot = 0
-            try:
-                with open('/proc/meminfo') as f:
-                    mem = {}
-                    for line in f:
-                        parts = line.split()
-                        if len(parts) >= 2: mem[parts[0].strip(':')] = int(parts[1])
-                used = (mem.get('MemTotal', 0) - mem.get('MemAvailable', mem.get('MemFree', 0))) / 1024
-                tot = mem.get('MemTotal', 0) / 1024
-            except Exception: pass
-            
+
             try:
                 total_d, used_d, free_d = shutil.disk_usage("/")
                 disk_used_mb = used_d // 1048576
@@ -1744,22 +1875,21 @@ def system_monitor_thread():
             except Exception:
                 disk_used_mb = disk_total_mb = 0
 
-            cpu_vcpus = (cpu_val / 100.0) * 2.0
-            mem_gb = used / 1024.0
-            cost_this_sec = (mem_gb * 0.000231 / 60) + (cpu_vcpus * 0.000463 / 60)
+            mem_gb = used_mb / 1024.0
+            cost_this_sec = (mem_gb * 0.000231 / 60) * dt + (vcpus * 0.000463 / 60) * dt
 
             with state_lock:
-                state["cpu_pct"] = cpu_val
-                state["mem_used_mb"] = used
-                state["mem_total_mb"] = tot
+                state["cpu_pct"] = cpu_pct
+                state["mem_used_mb"] = used_mb
+                state["mem_total_mb"] = tot_mb
                 state["disk_used_mb"] = disk_used_mb
                 state["disk_total_mb"] = disk_total_mb
                 state["load_avg"] = la
                 state["total_cost"] += cost_this_sec
-                
+
             if tick % 60 == 0:
                 commit_client_usage()
-                
+
         except Exception: pass
         time.sleep(1)
 
@@ -1895,7 +2025,7 @@ def generate_xray_config():
             "settings": { "clients": inb_clients, "decryption": "none" },
             "streamSettings": {
                 "network": "grpc", "security": "none",
-                "grpcSettings": { "serviceName": "grpc", "multiMode": True },
+                "grpcSettings": { "serviceName": "grpc" },
                 "sockopt": { "tcpFastOpen": True }
             },
             "sniffing": { "enabled": adv.get("deepSniff", True), "destOverride": sniff_override }
