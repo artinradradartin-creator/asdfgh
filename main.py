@@ -478,9 +478,11 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             <div class="nav-item" onclick="switchTab('logs')"><i class="fa-solid fa-terminal"></i> Console Logs</div>
         </div>
         <div class="sidebar-footer">
-            Built with <i class="fa-solid fa-bolt text-accent" style="color:var(--accent);"></i> on Railway
-            <div style="margin-top: 8px;">
-                <a href="https://github.com/Code-Leafy/R2rayPanel" target="_blank" style="color:var(--text-muted); text-decoration:none; font-size:0.75rem; transition: var(--transition); font-weight:700;"><i class="fa-brands fa-github"></i> R2rayPanel GitHub</a>
+            <div style="margin-bottom: 8px;">
+                Built with <i class="fa-solid fa-mug-hot text-accent"></i> by <a href="https://github.com/Code-Leafy" target="_blank" style="color:var(--text-main); text-decoration:none; font-weight:700;">Code-Leafy</a>
+            </div>
+            <div>
+                <a href="https://github.com/Code-Leafy/R2rayPanel" target="_blank" style="color:var(--text-muted); text-decoration:none; transition: var(--transition); font-weight:700;"><i class="fa-brands fa-github"></i> R2ray</a>
             </div>
         </div>
     </aside>
