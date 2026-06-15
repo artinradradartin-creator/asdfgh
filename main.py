@@ -16,7 +16,10 @@ import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
-LOCAL_VERSION = "7.0.0"
+LOCAL_VERSION = "6.0.0"
+AUTO_UPDATE = True
+UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
+RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -32,7 +35,6 @@ XRAY_BIN = "/usr/local/bin/xray"
 
 RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "localhost")
 PROJECT_USER = os.environ.get("RAILWAY_PROJECT_NAME", "Admin")
-SYSTEM_PASS = os.environ.get("PASS", "").strip()
 
 RAILWAY_PORT = int(os.environ.get("PORT", 8080))
 XRAY_XHTTP_PORT = 10001
@@ -83,10 +85,6 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             --transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
-        
-        ::selection { background: rgba(133, 59, 206, 0.5); color: #ffffff; }
-        ::-moz-selection { background: rgba(133, 59, 206, 0.5); color: #ffffff; }
-        
         button, .btn, .btn-icon, .nav-item, .sidebar, .topbar, .modal-header, .modal-tabs, .modal-tab-btn, .tag, label.switch, .panel-title { user-select: none; }
         input, textarea, select, .mono, pre, code, #log-output, .modal-body, td, .form-label { user-select: text; }
         input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
@@ -173,15 +171,6 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         select.form-control { -webkit-appearance: none; appearance: none; cursor: pointer; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 14px center; background-size: 14px; padding-right: 36px; }
         select.form-control:not(:disabled) { color: var(--text-main) !important; background-color: var(--bg-hover) !important; }
         select.form-control option { background-color: #1f1f22; color: #fafafa; }
-
-        .transport-sel {
-            width: 140px; height: 38px; padding: 8px 30px 8px 12px; background-color: var(--bg-hover); border: 1px solid var(--border);
-            color: var(--accent); border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; appearance: none; -webkit-appearance: none;
-            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23853BCE' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-            background-repeat: no-repeat; background-position: right 10px center; background-size: 14px; font-family: inherit; font-size: 0.8rem; transition: var(--transition);
-        }
-        .transport-sel:hover { border-color: var(--accent); background-color: var(--bg-active); }
-        .transport-sel:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
         
         .input-group { display: flex; gap: 8px; }
         .switch { position: relative; display: inline-block; width: 38px; height: 20px; flex-shrink: 0; cursor: pointer; }
@@ -218,9 +207,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         .modal-tab-content.active { display: flex; animation: slideFadeUp 0.2s ease forwards; }
         .modal-footer { padding: 18px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; background: rgba(255,255,255,0.01); border-radius: 0 0 var(--radius-md) var(--radius-md); }
         
-        .chart-wrapper { position: relative; width: 100%; height: 100%; min-height: 180px; flex: 1; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        .chart-wrapper canvas { max-width: 100%; max-height: 100%; display: block; }
-        
+        .chart-wrapper { position: relative; width: 100%; height: 100%; min-height: 0; min-width: 0; flex: 1; display: flex; align-items: center; justify-content: center; }
         .map-container { width: 100%; height: 160px; background: var(--bg-base); position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; border-bottom: 1px solid var(--border); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px; flex-shrink: 0; }
         @keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes pulseDot { 0% { transform: scale(1); box-shadow: 0 0 10px var(--accent); } 50% { transform: scale(1.5); box-shadow: 0 0 25px var(--accent); } 100% { transform: scale(1); box-shadow: 0 0 10px var(--accent); } }
@@ -315,34 +302,8 @@ HTML_CONTENT = r"""<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div id="auth-overlay" style="position:fixed;inset:0;background:var(--bg-base);z-index:999999;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-        <div id="auth-loader" style="display:flex;justify-content:center;align-items:center;height:100%;"><div class="spinner-ring"></div></div>
-        <div id="auth-box" class="panel" style="width:100%;max-width:400px;padding:32px;display:none;animation:slideFadeUp 0.3s ease;">
-            <h2 style="text-align:center;margin-bottom:8px;"><i class="fa-solid fa-lock text-accent"></i> Authentication</h2>
-            <p style="text-align:center;color:var(--text-muted);margin-bottom:24px;font-size:0.85rem;">Enter your R2ray Panel password</p>
-            <input type="password" id="auth-pass-input" class="form-control" style="margin-bottom:16px;" placeholder="Password..." onkeypress="if(event.key==='Enter') window.submitAuth()">
-            <button class="btn btn-primary" style="width:100%;" onclick="window.submitAuth()">Login</button>
-            <div style="margin-top: 24px; text-align: center;">
-                <a href="https://github.com/Code-Leafy/R2rayPanel" target="_blank" style="color:var(--text-muted); text-decoration:none; font-size:0.8rem; font-weight:600;"><i class="fa-brands fa-github"></i> R2rayPanel</a>
-            </div>
-        </div>
-        <div id="setup-box" class="panel" style="width:100%;max-width:460px;padding:32px;display:none;text-align:center;animation:slideFadeUp 0.3s ease;">
-            <h2 style="margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation text-warning"></i> Security Setup Required</h2>
-            <p style="color:var(--text-muted);font-size:0.9rem;line-height:1.6;margin-bottom:24px;">No password is configured for this panel. For your security, you must set an environment variable.</p>
-            <div style="background:var(--bg-hover);padding:16px;border-radius:var(--radius-sm);text-align:left;font-size:0.85rem;margin-bottom:24px;border:1px solid var(--border);">
-                <ol style="margin-left:20px;color:var(--text-main);line-height:1.8;">
-                    <li>Open your project in Railway.</li>
-                    <li>Go to the <b>Variables</b> tab.</li>
-                    <li>Click <b>New Variable</b>.</li>
-                    <li>Set Variable Name to <code style="color:var(--accent);font-weight:bold;">PASS</code></li>
-                    <li>Set the Value to your desired password.</li>
-                    <li>Click Add/Deploy.</li>
-                </ol>
-            </div>
-            <button class="btn btn-primary" style="width:100%;" onclick="location.reload()">I have set the password, refresh</button>
-        </div>
-    </div>
-
+    <div id="loader"><div class="spinner-ring"></div></div>
+    
     <aside class="sidebar" id="sidebar">
         <div class="logo-box">
             <svg viewBox="0 0 512 512" fill="var(--accent)"><path d="M368 48H144C108.7 48 80 76.7 80 112V352c0 23.4 12.6 44.1 31.2 55.4l-24 48c-4.5 9-1.9 20.2 6.2 26.2s19.3 5.3 26.5-1.9L166.1 432H346l46.2 47.7c7.2 7.2 18.4 7.9 26.5 1.9s10.7-17.2 6.2-26.2l-24-48c18.6-11.3 31.2-32 31.2-55.4V112C432 76.7 403.3 48 368 48zM144 112H368c8.8 0 16 7.2 16 16v96H128v-96C128 119.2 135.2 112 144 112zM256 368c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32S273.7 368 256 368z"/></svg>
@@ -397,7 +358,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                             <div class="panel-body" style="gap: 16px; justify-content: center;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px;"><span style="color:var(--text-muted); font-weight:600; font-size:0.85rem;">Engine Status</span><span class="tag tag-red" id="dash-status-tag">Offline</span></div>
                                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px;"><span style="color:var(--text-muted); font-weight:600; font-size:0.85rem;">System Load Avg</span><span class="mono" id="dash-load-avg">0.00</span></div>
-                                <div style="display:flex; justify-content:space-between; align-items:center;"><span style="color:var(--text-muted); font-weight:600; font-size:0.85rem;">Memory Allocation</span><span class="mono" id="dash-mem-alloc">0.0 MB</span></div>
+                                <div style="display:flex; justify-content:space-between; align-items:center;"><span style="color:var(--text-muted); font-weight:600; font-size:0.85rem;">Memory Allocation</span><span class="mono" id="dash-mem-alloc">0 / 0 MB</span></div>
                             </div>
                         </div>
                         <div class="panel">
@@ -448,8 +409,8 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                                     <span style="color:var(--text-muted);">Total Budget: $5.00</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; font-weight:700; font-size:0.8rem;">
-                                    <span id="q-cost-used" style="color:var(--danger);">Used: $0.0000</span>
-                                    <span id="q-cost-rem" style="color:var(--accent);">Remaining: $5.0000</span>
+                                    <span id="q-cost-used" style="color:var(--danger);">Used: $0.00</span>
+                                    <span id="q-cost-rem" style="color:var(--accent);">Remaining: $5.00</span>
                                 </div>
                                 <div class="hw-bar-bg" style="margin-top:0;"><div id="q-cost-bar" class="hw-bar-fill" style="width:0%; background:var(--danger);"></div></div>
                             </div>
@@ -490,7 +451,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                     </div>
                 </div>
                 <div class="grid-1-2" style="height: 240px; flex-shrink:0;">
-                    <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fa-solid fa-chart-pie text-accent"></i> Usage Share</div></div><div class="panel-body-unpadded chart-wrapper" style="padding: 16px;"><canvas id="client-pie-chart"></canvas></div></div>
+                    <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fa-solid fa-chart-pie text-accent"></i> Usage Share</div></div><div class="panel-body chart-wrapper" style="padding: 16px;"><canvas id="client-pie-chart"></canvas></div></div>
                     <div class="panel">
                         <div class="panel-header" style="position:relative;"><div class="panel-title"><i class="fa-solid fa-users-rays text-info"></i> Live Data Flow</div></div>
                         <div class="panel-body-unpadded chart-wrapper" style="padding: 16px 16px 16px 8px;"><canvas id="client-flow-chart"></canvas></div>
@@ -520,13 +481,13 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                             <div class="panel-header">
                                 <div class="panel-title"><i class="fa-solid fa-list text-info"></i> Config Entries <span id="sub-entry-count" class="tag tag-blue" style="margin-left:8px;">0</span></div>
                                 <div style="display:flex; gap:8px;">
-                                    <select id="transport-sel" class="transport-sel">
+                                    <select id="transport-sel" class="form-control" style="width: 130px; height: 30px; padding: 4px; font-size: 0.75rem;">
                                         <option value="xhttp">xHTTP (Rec.)</option>
                                         <option value="ws">WebSocket</option>
                                         <option value="grpc">gRPC</option>
                                     </select>
-                                    <button class="btn" style="padding:4px 10px; height: 38px; font-size:0.75rem;" onclick="window.addSubEntry('proxy')"><i class="fa-solid fa-plus"></i> Proxy</button>
-                                    <button class="btn" style="padding:4px 10px; height: 38px; font-size:0.75rem; background:var(--info-bg); color:var(--info); border:none;" onclick="window.addSubEntry('info')"><i class="fa-solid fa-circle-info"></i> Info</button>
+                                    <button class="btn" style="padding:4px 10px; height: 30px; font-size:0.75rem;" onclick="window.addSubEntry('proxy')"><i class="fa-solid fa-plus"></i> Proxy</button>
+                                    <button class="btn" style="padding:4px 10px; height: 30px; font-size:0.75rem; background:var(--info-bg); color:var(--info); border:none;" onclick="window.addSubEntry('info')"><i class="fa-solid fa-circle-info"></i> Info</button>
                                 </div>
                             </div>
                             <div class="panel-body-unpadded" style="overflow-y:auto; padding:16px;">
@@ -583,7 +544,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                     <div class="panel">
                         <div class="panel-header"><div class="panel-title"><i class="fa-solid fa-route text-accent"></i> Global Routing</div></div>
                         <div class="panel-body">
-                            <div class="settings-row"><div class="settings-info" style="width:50%;"><h4>Domain Strategy</h4></div><div style="width:50%;"><select class="form-control" id="adv-domain-strategy"><option value="AsIs">AsIs</option><option value="IPIfNonMatch" selected>IPIfNonMatch</option><option value="UseIP">UseIP</option><option value="IPOnDemand">IPOnDemand</option></select></div></div>
+                            <div class="settings-row"><div class="settings-info" style="width:50%;"><h4>Domain Strategy</h4></div><div style="width:50%;"><select class="form-control" id="adv-domain-strategy"><option value="AsIs">AsIs</option><option value="IPIfNonMatch">IPIfNonMatch</option><option value="UseIP" selected>UseIP</option><option value="IPOnDemand">IPOnDemand</option></select></div></div>
                             <div class="settings-row"><div class="settings-info"><h4>Deep Packet Sniffing</h4></div><label class="switch"><input type="checkbox" id="adv-deep-sniff" checked><span class="slider"></span></label></div>
                             <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:12px; border:none; padding-bottom: 20px;">
                                 <div class="settings-info"><h4>Sniffing Overrides</h4></div>
@@ -708,6 +669,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
     <div class="toast-box" id="toaster"></div>
 
     <script>
+        Chart.defaults.color = '#a1a1aa'; Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif"; Chart.defaults.font.size = 12;
         document.addEventListener('contextmenu', e => e.preventDefault());
         document.addEventListener('keydown', e => { if(e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I') || (e.ctrlKey && e.key === 'u')) e.preventDefault(); });
 
@@ -715,38 +677,8 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         window.clients = []; 
         window.subEntries = []; window.subClientSubscriptions = {};
         window.lastTelemetry = {}; window.PORT_DOMAIN = '';
-        window.R2_PASS = localStorage.getItem('r2ray_pass') || '';
         
         const backendSync = { connected: false, syncing: false, debounceHandle: null };
-
-        let isAuthError = false;
-
-        async function fetchWithAuth(url, options = {}) {
-            if (!options.headers) options.headers = {};
-            options.headers['X-Auth-Pass'] = window.R2_PASS;
-            const res = await fetch(url, options);
-            if (res.status === 401 || res.status === 403) {
-                isAuthError = true;
-                document.getElementById('auth-overlay').style.display = 'flex';
-                if (res.status === 401) {
-                    document.getElementById('auth-box').style.display = 'block';
-                    document.getElementById('setup-box').style.display = 'none';
-                } else {
-                    document.getElementById('setup-box').style.display = 'block';
-                    document.getElementById('auth-box').style.display = 'none';
-                }
-                document.getElementById('auth-loader').style.display = 'none';
-                return null;
-            }
-            return res;
-        }
-
-        window.submitAuth = async function() {
-            const pass = document.getElementById('auth-pass-input').value;
-            window.R2_PASS = pass;
-            localStorage.setItem('r2ray_pass', pass);
-            location.reload();
-        }
 
         let confirmCallback = null;
         window.customConfirm = function(msg, cb) {
@@ -771,15 +703,9 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if (tabId === 'dashboard') {
                 topbar.classList.add('hidden');
                 mobileBtn.style.display = window.innerWidth <= 1024 ? 'block' : 'none';
-                if(trafficChart) trafficChart.resize();
-                if(hwChart) hwChart.resize();
             } else {
                 topbar.classList.remove('hidden');
                 mobileBtn.style.display = 'none';
-                if (tabId === 'clients') {
-                    if(clientPieChart) clientPieChart.resize();
-                    if(clientFlowChart) clientFlowChart.resize();
-                }
             }
             if(window.innerWidth <= 1024) document.getElementById('sidebar').classList.remove('open');
         }
@@ -816,10 +742,6 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         }
 
         function ensureCharts() {
-            Chart.defaults.color = '#a1a1aa'; 
-            Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif"; 
-            Chart.defaults.font.size = 12;
-
             if(!trafficChart) {
                 trafficChart = new Chart(document.getElementById('chart-traffic').getContext('2d'), {
                     type: 'line', data: { labels: Array(60).fill(''), datasets: [
@@ -839,7 +761,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(!clientPieChart) {
                 clientPieChart = new Chart(document.getElementById('client-pie-chart').getContext('2d'), {
                     type: 'doughnut', data: { labels: [], datasets: [{ data: [], backgroundColor: ['#853BCE', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#ec4899'], borderWidth: 0 }] },
-                    options: { animation: false, responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels: { color: '#a1a1aa', usePointStyle: true, boxWidth: 6 } } } }
+                    options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels: { color: '#a1a1aa', usePointStyle: true, boxWidth: 6 } } } }
                 });
             }
             if(!clientFlowChart) {
@@ -890,7 +812,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             
             if(state.settings) {
                 let adv = state.settings.advanced || {};
-                document.getElementById('adv-domain-strategy').value = adv.domainStrategy || 'IPIfNonMatch';
+                document.getElementById('adv-domain-strategy').value = adv.domainStrategy || 'UseIP';
                 document.getElementById('adv-deep-sniff').checked = adv.deepSniff !== false;
                 document.getElementById('adv-sniff-http').checked = adv.sniffHttp !== false;
                 document.getElementById('adv-sniff-tls').checked = adv.sniffTls !== false;
@@ -935,22 +857,15 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             let s = t.xrayUptimeSec || 0;
             document.getElementById('m-uptime').innerText = xrayUp ? `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60).toString().padStart(2,'0')}m` : 'Stopped';
             
-            const formatGBMB = mb => mb >= 1000 ? (mb / 1024).toFixed(1) + " GB" : mb.toFixed(1) + " MB";
             const ramTotal = Number(t.ramTotalMb || 4096);
-            
             document.getElementById('dash-load-avg').innerText = t.loadAvg.map(x=>x.toFixed(2)).join(' / ');
-            
-            if (t.ramTotalMb > 100000) {
-                document.getElementById('dash-mem-alloc').innerText = `${formatGBMB(t.ramMb)} / Unlim`;
-            } else {
-                document.getElementById('dash-mem-alloc').innerText = `${formatGBMB(t.ramMb)} / ${formatGBMB(t.ramTotalMb)}`;
-            }
+            document.getElementById('dash-mem-alloc').innerText = `${Number(t.ramMb||0).toFixed(2)} / ${Number(t.ramTotalMb||4096).toFixed(2)} MB`;
             
             document.getElementById('hw-cpu-val').innerText = `${Number(t.cpuPct||0).toFixed(1)}%`;
             document.getElementById('hw-cpu-bar').style.width = `${Math.min(100, Number(t.cpuPct||0))}%`;
-            document.getElementById('hw-ram-val').innerText = formatGBMB(t.ramMb);
-            document.getElementById('hw-ram-bar').style.width = t.ramTotalMb > 100000 ? '0%' : `${Math.min(100, (Number(t.ramMb||0)/ramTotal)*100)}%`;
-            document.getElementById('hw-disk-val').innerText = `${formatGBMB(t.diskUsedMb)} / ${formatGBMB(t.diskTotalMb)}`;
+            document.getElementById('hw-ram-val').innerText = `${Number(t.ramMb||0).toFixed(2)} MB`;
+            document.getElementById('hw-ram-bar').style.width = `${Math.min(100, (Number(t.ramMb||0)/ramTotal)*100)}%`;
+            document.getElementById('hw-disk-val').innerText = `${t.diskUsedMb} / ${t.diskTotalMb} MB`;
             document.getElementById('hw-disk-bar').style.width = t.diskTotalMb ? `${Math.min(100, (t.diskUsedMb/t.diskTotalMb)*100)}%` : '0%';
             
             let usedCost = t.totalCost || 0;
@@ -1030,18 +945,22 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             };
         };
 
+        window.schedulePanelSync = function(reason='change') {
+            if(backendSync.debounceHandle) clearTimeout(backendSync.debounceHandle);
+            backendSync.debounceHandle = setTimeout(() => pushPanelState(reason), 300);
+        };
+
         window.pushPanelState = async function(reason='sync') {
-            if(backendSync.syncing || isAuthError) return;
+            if(backendSync.syncing || !backendSync.connected) return;
             backendSync.syncing = true;
             try {
-                const res = await fetchWithAuth('/api/state', {
+                const res = await fetch('/api/state', {
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: serializePanelState(), reason })
                 });
-                if(!res) return;
                 const data = await res.json();
-                if(!data.ok) throw new Error('state sync failed');
-            } catch (err) { showToast(`Backend sync failed`, 'error'); } 
+                if(!data.ok) throw new Error(data.error || 'state sync failed');
+            } catch (err) { showToast(`Backend sync failed: ${err.message || err}`, 'error'); } 
             finally { backendSync.syncing = false; }
         };
 
@@ -1106,8 +1025,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         async function getSubscriptionLink(clientId) {
             if(!backendSync.connected) return null;
             try {
-                const res = await fetchWithAuth(`/api/sub/link/${encodeURIComponent(clientId)}`);
-                if(!res || !res.ok) return null;
+                const res = await fetch(`/api/sub/link/${encodeURIComponent(clientId)}`);
                 const data = await res.json();
                 if(data.ok && data.link) return data.link;
             } catch(e) {} return null;
@@ -1321,16 +1239,12 @@ window.initBackendSync = async function() {
     let lastLogLine = "";
     
     async function syncLoop() {
-        if(backendSync.syncing || isAuthError) return;
+        if(backendSync.syncing) return;
         try {
-            let res = await fetchWithAuth('/api/state');
-            if(!res) return;
-            
+            let res = await fetch('/api/state');
+            if(!res.ok) throw new Error('Network error');
             let data = await res.json();
             if(data.ok) {
-                if(document.getElementById('auth-overlay').style.display !== 'none') {
-                    document.getElementById('auth-overlay').style.display = 'none';
-                }
                 if(typeof applyPanelState === 'function' && data.state) {
                     applyPanelState(data.state, data);
                 }
@@ -1357,8 +1271,7 @@ window.initBackendSync = async function() {
 window.setXrayStatus = async function(action) {
     if(action !== 'clear_logs') showToast('Executing ' + action + '...', 'info');
     try {
-        let res = await fetchWithAuth('/api/action', { method: 'POST', body: JSON.stringify({action}), headers: {'Content-Type': 'application/json'} });
-        if(!res) return;
+        let res = await fetch('/api/action', { method: 'POST', body: JSON.stringify({action}), headers: {'Content-Type': 'application/json'} });
         if(res.ok && action !== 'clear_logs') showToast('Command completed: ' + action, 'success');
         else if(!res.ok) showToast('Command failed', 'error');
     } catch(e) { showToast('Network error', 'error'); }
@@ -1432,24 +1345,23 @@ def full_cleanup():
     free_port(API_PORT)
     time.sleep(0.5)
 
+def check_and_update():
+    if not AUTO_UPDATE: return
+    try:
+        req = urllib.request.urlopen(RAW_BASE + "r2ray.py", timeout=5)
+        remote_content = req.read()
+        with open(__file__, "rb") as f: local_content = f.read()
+        if remote_content.replace(b'\r\n', b'\n') != local_content.replace(b'\r\n', b'\n'):
+            target = os.path.abspath(__file__)
+            shutil.copyfile(target, target + ".bak")
+            with open(target, "wb") as f: f.write(remote_content)
+            os.chmod(target, 0o755)
+            os.execv(sys.executable, [sys.executable, target])
+    except Exception: pass
+
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
-
-def get_mem_limit_mb():
-    try:
-        with open('/sys/fs/cgroup/memory.max') as f:
-            val = f.read().strip()
-            if val != 'max': return int(val) // 1048576
-    except: pass
-    try:
-        with open('/sys/fs/cgroup/memory/memory.limit_in_bytes') as f:
-            val = f.read().strip()
-            if val:
-                limit = int(val) // 1048576
-                if limit < 1000000: return limit
-    except: pass
-    return 0
 
 def get_combined_state():
     try:
@@ -1613,21 +1525,6 @@ def handle_api_action(data):
 
 class WebUIHandler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
-
-    def check_auth(self):
-        if not SYSTEM_PASS:
-            self.send_response(403)
-            self.send_header("Content-type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"error": "setup_required"}')
-            return False
-        if self.headers.get("X-Auth-Pass", "") != SYSTEM_PASS:
-            self.send_response(401)
-            self.send_header("Content-type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"error": "unauthorized"}')
-            return False
-        return True
     
     def do_GET(self):
         try:
@@ -1642,13 +1539,11 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(PANEL_WIRING_JS.encode())
             elif self.path == '/api/state':
-                if not self.check_auth(): return
                 self.send_response(200)
                 self.send_header("Content-type", "application/json")
                 self.end_headers()
                 self.wfile.write(get_combined_state().encode())
             elif self.path.startswith('/api/sub/link/'):
-                if not self.check_auth(): return
                 client_id = self.path.split('/')[-1]
                 link = generate_sub_link_url(urllib.parse.unquote(client_id))
                 self.send_response(200)
@@ -1669,13 +1564,11 @@ class WebUIHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-        except Exception as e:
-            log_sys_err(f"WebUI GET Error: {e}")
+        except Exception: pass
         
     def do_PUT(self):
         try:
             if self.path == '/api/state':
-                if not self.check_auth(): return
                 length = int(self.headers.get('Content-Length', 0))
                 body = self.rfile.read(length).decode()
                 data = json.loads(body)
@@ -1712,13 +1605,11 @@ class WebUIHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-        except Exception as e:
-            log_sys_err(f"WebUI PUT Error: {e}")
+        except Exception: pass
         
     def do_POST(self):
         try:
             if self.path == '/api/action':
-                if not self.check_auth(): return
                 length = int(self.headers.get('Content-Length', 0))
                 body = self.rfile.read(length).decode()
                 data = json.loads(body)
@@ -1728,7 +1619,6 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b'{"ok":true}')
             elif self.path == '/api/backup':
-                if not self.check_auth(): return
                 backup_name = f"panel_state_backup_{int(time.time())}.json"
                 if os.path.exists(PANEL_STATE_FILE):
                     with file_lock:
@@ -1740,7 +1630,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-        except Exception as e:
+        except Exception:
             try:
                 self.send_response(500)
                 self.end_headers()
@@ -1752,7 +1642,7 @@ def web_server_thread(port):
 
 async def multiplexer(reader, writer):
     try:
-        data = await reader.read(8192)
+        data = await reader.read(4096)
         if not data:
             writer.close()
             return
@@ -1783,10 +1673,9 @@ async def multiplexer(reader, writer):
                 try: w.close()
                 except: pass
 
-        await asyncio.gather(pipe(reader, t_writer), pipe(t_reader, writer))
+        asyncio.create_task(pipe(reader, t_writer))
+        asyncio.create_task(pipe(t_reader, writer))
     except Exception:
-        pass
-    finally:
         try: writer.close()
         except: pass
 
@@ -1800,7 +1689,6 @@ def start_multiplexer():
 
 last_cpu_idle = 0.0
 last_cpu_total = 0.0
-last_tick_time = time.time()
 
 def sample_cpu_pct():
     global last_cpu_idle, last_cpu_total
@@ -1827,17 +1715,12 @@ def fetch_ip_info():
     except Exception: pass
 
 def system_monitor_thread():
-    global state, last_tick_time
+    global state
+
     tick = 0
-    last_tick_time = time.time()
-    
     while engine_running:
         tick += 1
         try:
-            current_time = time.time()
-            dt = min(current_time - last_tick_time, 5.0)
-            last_tick_time = current_time
-
             cpu_val = sample_cpu_pct()
             try: la = list(os.getloadavg())
             except Exception: la = [0,0,0]
@@ -1851,12 +1734,7 @@ def system_monitor_thread():
                         parts = line.split()
                         if len(parts) >= 2: mem[parts[0].strip(':')] = int(parts[1])
                 used = (mem.get('MemTotal', 0) - mem.get('MemAvailable', mem.get('MemFree', 0))) / 1024
-                
-                limit_mb = get_mem_limit_mb()
-                if limit_mb > 0:
-                    tot = limit_mb
-                else:
-                    tot = mem.get('MemTotal', 0) / 1024
+                tot = mem.get('MemTotal', 0) / 1024
             except Exception: pass
             
             try:
@@ -1868,10 +1746,7 @@ def system_monitor_thread():
 
             cpu_vcpus = (cpu_val / 100.0) * 2.0
             mem_gb = used / 1024.0
-            
-            cost_mem_sec = (mem_gb * 0.000231) / 60.0
-            cost_cpu_sec = (cpu_vcpus * 0.000463) / 60.0
-            cost_this_tick = (cost_mem_sec + cost_cpu_sec) * dt
+            cost_this_sec = (mem_gb * 0.000231 / 60) + (cpu_vcpus * 0.000463 / 60)
 
             with state_lock:
                 state["cpu_pct"] = cpu_val
@@ -1880,7 +1755,7 @@ def system_monitor_thread():
                 state["disk_used_mb"] = disk_used_mb
                 state["disk_total_mb"] = disk_total_mb
                 state["load_avg"] = la
-                state["total_cost"] += cost_this_tick
+                state["total_cost"] += cost_this_sec
                 
             if tick % 60 == 0:
                 commit_client_usage()
@@ -2055,7 +1930,7 @@ def generate_xray_config():
         },
         "inbounds": inbounds,
         "outbounds": [
-            {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": adv.get("domainStrategy", "IPIfNonMatch")}},
+            {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": adv.get("domainStrategy", "UseIP")}},
             {"tag": "block", "protocol": "blackhole"}
         ]
     }
@@ -2102,8 +1977,6 @@ def print_start_banner():
     print("\n" + "="*60)
     print("🚀 R2RAY PANEL STARTED SUCCESSFULLY ON RAILWAY")
     print("="*60)
-    if not SYSTEM_PASS:
-        print("⚠️ WARNING: 'PASS' environment variable is NOT SET. Set it in Railway Dashboard for security.")
     print(f"🌐 Access Web Panel & Subscriptions: \033[92m\033[4m{panel_url}\033[0m")
     print(f"🔗 Forwarded Xray Endpoint: \033[94m{RAILWAY_PUBLIC_DOMAIN}:443\033[0m")
     print("="*60 + "\n")
@@ -2120,6 +1993,7 @@ def main():
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
 
+    check_and_update()
     full_cleanup()
     
     if not os.path.exists(PANEL_STATE_FILE):
@@ -2128,7 +2002,7 @@ def main():
                 json.dump({
                     "clients": [],
                     "settings": {
-                        "advanced": {"logLevel": "warning", "domainStrategy": "IPIfNonMatch", "dnsPrimary": "1.1.1.1", "dnsFallback": "8.8.8.8"}
+                        "advanced": {"logLevel": "warning", "domainStrategy": "UseIP", "dnsPrimary": "1.1.1.1", "dnsFallback": "8.8.8.8"}
                     },
                     "telemetry": {"total_down": 0, "total_up": 0, "uptime_sec": 0, "total_cost": 0.0}
                 }, f)
