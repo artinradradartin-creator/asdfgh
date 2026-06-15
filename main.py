@@ -16,7 +16,7 @@ import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
-LOCAL_VERSION = "6.2.0"
+LOCAL_VERSION = "6.3.0"
 AUTO_UPDATE = True
 UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
@@ -54,12 +54,117 @@ state = {
     "total_down": 0, "total_up": 0, "uptime_sec": 0,
     "speed_down_bps": 0, "speed_up_bps": 0, "cpu_pct": 0.0,
     "mem_used_mb": 0, "mem_total_mb": 512,
-    "disk_used_mb": 0, "disk_total_mb": 0,
+    "disk_used_gb": 0, "disk_total_gb": 0,
     "load_avg": [0,0,0], "is_xray_running": False,
     "client_usage_bytes": {},
     "ip_city": "N/A", "ip_country": "N/A", "ip_ipv4": "N/A",
     "total_cost": 0.0
 }
+
+SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Profile</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root { --bg-base: #09090b; --bg-panel: #121214; --bg-hover: #1f1f22; --border: rgba(255,255,255,0.08); --text-main: #fafafa; --text-muted: #a1a1aa; --accent: #853BCE; --accent-hover: #672E9E; --accent-bg: rgba(133,59,206,0.12); --danger: #ef4444; --warning: #f59e0b; --success: #10b981; --radius-md: 16px; --radius-sm: 10px; }
+        body { background: var(--bg-base); color: var(--text-main); font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 24px 16px; display: flex; justify-content: center; min-height: 100vh; box-sizing: border-box; }
+        .container { max-width: 480px; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+        .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 24px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+        .card-title { margin: 0 0 16px 0; font-size: 1.15rem; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .stat-box { background: var(--bg-base); border: 1px solid var(--border); padding: 14px; border-radius: var(--radius-sm); }
+        .stat-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.05em; }
+        .stat-val { font-size: 1.15rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+        .tag { padding: 4px 12px; border-radius: 8px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+        .btn { width: 100%; background: var(--bg-hover); color: var(--text-main); border: 1px solid var(--border); padding: 14px; border-radius: var(--radius-sm); font-size: 0.9rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; transition: all 0.2s ease; margin-top: 12px; }
+        .btn:hover { background: var(--border); transform: translateY(-1px); }
+        .btn-primary { background: var(--accent); color: #fff; border: none; box-shadow: 0 4px 12px rgba(133,59,206,0.3); }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-icon { width: 40px; height: 40px; padding: 0; margin: 0; }
+        .link-item { background: var(--bg-base); border: 1px solid var(--border); padding: 14px; border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; transition: border-color 0.2s; }
+        .link-item:hover { border-color: var(--border-hover); }
+        .link-item-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 4px; color: var(--text-main); }
+        .link-item-sub { font-size: 0.75rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+        .progress-bar { width: 100%; height: 8px; background: var(--bg-hover); border-radius: 4px; margin-top: 10px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--success); border-radius: 4px; transition: width 0.3s ease; }
+        .progress-fill.warning { background: var(--warning); }
+        .progress-fill.danger { background: var(--danger); }
+        .qr-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); justify-content: center; align-items: center; z-index: 100; padding: 20px; animation: fadeIn 0.2s ease; }
+        .qr-modal.show { display: flex; }
+        .qr-card { background: #fff; padding: 24px; border-radius: var(--radius-md); text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); transform: translateY(0); transition: transform 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="container" id="app"></div>
+    <div class="qr-modal" id="qr-modal" onclick="this.classList.remove('show')">
+        <div class="qr-card" onclick="event.stopPropagation()">
+            <div id="qrcode" style="display:inline-block; padding:10px; border:4px solid #f0f0f0; border-radius:12px; background:#fff;"></div>
+            <button class="btn" style="margin-top:20px; background:#f4f4f5; color:#18181b; border:none;" onclick="document.getElementById('qr-modal').classList.remove('show')">Close QR</button>
+        </div>
+    </div>
+    <script>
+        const DATA = {{SUB_DATA_JSON}};
+        function fmtGB(v){ return !v ? '∞' : v.toFixed(2)+' GB'; }
+        function fmtDate(d){ return !d ? 'Never' : new Date(d).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}); }
+        function cp(t){ navigator.clipboard.writeText(t).then(()=>{ const el=document.createElement('div'); el.innerText='Copied!'; el.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--success);color:#fff;padding:10px 20px;border-radius:20px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(16,185,129,0.3);'; document.body.appendChild(el); setTimeout(()=>el.remove(),2000); }); }
+        function qr(t){ document.getElementById('qrcode').innerHTML=''; new QRCode(document.getElementById('qrcode'),{text:t,width:220,height:220,colorDark:"#000000",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M}); document.getElementById('qr-modal').classList.add('show'); }
+        function render(){
+            const u = DATA.client.usage||0; const l = DATA.client.limit||0; const p = l>0?Math.min(100,(u/l)*100):0;
+            const cls = p>90?'danger':(p>75?'warning':'');
+            document.getElementById('app').innerHTML = `
+                <div style="text-align:center; margin-bottom:8px;">
+                    <i class="fa-solid fa-leaf" style="font-size:2.5rem; color:var(--accent); margin-bottom:12px; text-shadow:0 0 20px var(--accent-bg);"></i>
+                    <h1 style="margin:0; font-size:1.8rem; font-weight:800; letter-spacing:-0.03em;">R2ray Panel</h1>
+                    <p style="color:var(--text-muted); font-size:0.85rem; font-weight:600; margin-top:6px;">Subscription Environment</p>
+                </div>
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h2 class="card-title" style="margin:0;"><i class="fa-solid fa-user-shield text-accent"></i> ${DATA.client.name}</h2>
+                        <span class="tag" style="background:${DATA.client.status?'var(--success)':'var(--danger)'}20; color:${DATA.client.status?'var(--success)':'var(--danger)'};">${DATA.client.status?'ACTIVE':'OFFLINE'}</span>
+                    </div>
+                    <div class="stat-grid">
+                        <div class="stat-box"><div class="stat-label">Used Data</div><div class="stat-val">${u>0?u.toFixed(2):'0'} GB</div></div>
+                        <div class="stat-box"><div class="stat-label">Total Quota</div><div class="stat-val">${fmtGB(l)}</div></div>
+                        <div class="stat-box" style="grid-column:1/-1;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;"><span class="stat-label" style="margin:0;">Consumption</span><span style="font-size:0.8rem; font-weight:800;">${p.toFixed(1)}%</span></div>
+                            <div class="progress-bar"><div class="progress-fill ${cls}" style="width:${p}%"></div></div>
+                        </div>
+                        <div class="stat-box"><div class="stat-label">Expiry</div><div class="stat-val" style="font-size:0.95rem;">${fmtDate(DATA.client.expiry)}</div></div>
+                        <div class="stat-box"><div class="stat-label">Remaining</div><div class="stat-val" style="font-size:0.95rem;">${l?fmtGB(Math.max(0,l-u)):'∞'}</div></div>
+                    </div>
+                    <button class="btn btn-primary" style="margin-top:20px;" onclick="cp(window.location.href)"><i class="fa-solid fa-link"></i> Copy Subscription Link</button>
+                </div>
+                <div class="card">
+                    <h2 class="card-title"><i class="fa-solid fa-network-wired text-accent"></i> Core Configurations</h2>
+                    <button class="btn" style="margin-bottom:20px; background:var(--accent-bg); color:var(--accent); border:none;" onclick="cp(DATA.links.join('\\n'))"><i class="fa-solid fa-copy"></i> Copy All Configs</button>
+                    <div style="display:flex; flex-direction:column;">
+                        ${DATA.links.map((lnk,i)=>{
+                            let n = 'Node '+(i+1); try{n=decodeURIComponent(lnk.split('#')[1]||n);}catch(e){}
+                            return `<div class="link-item">
+                                <div style="min-width:0; flex:1; padding-right:16px;">
+                                    <div class="link-item-title">${n}</div>
+                                    <div class="link-item-sub">${lnk.substring(0,32)}...</div>
+                                </div>
+                                <div style="display:flex; gap:8px;">
+                                    <button class="btn btn-icon" onclick="qr('${lnk}')"><i class="fa-solid fa-qrcode"></i></button>
+                                    <button class="btn btn-icon" onclick="cp('${lnk}')"><i class="fa-solid fa-copy"></i></button>
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        render();
+    </script>
+</body>
+</html>"""
 
 HTML_CONTENT = r"""<!DOCTYPE html>
 <html lang="en">
@@ -459,7 +564,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                         <div style="display: flex; flex-direction: column; gap: 20px; padding-right: 16px;">
                             <div><div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; font-weight:700; margin-bottom:8px;"><span>CPU Load (2 vCores)</span> <span id="hw-cpu-val" class="mono text-main">0%</span></div><div class="hw-bar-bg"><div id="hw-cpu-bar" class="hw-bar-fill" style="width: 0%; background:var(--warning);"></div></div></div>
                             <div><div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; font-weight:700; margin-bottom:8px;"><span>Memory Usage</span> <span id="hw-ram-val" class="mono text-main">0 MB</span></div><div class="hw-bar-bg"><div id="hw-ram-bar" class="hw-bar-fill" style="width: 0%; background:var(--purple);"></div></div></div>
-                            <div><div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; font-weight:700; margin-bottom:8px;"><span>Disk Storage (SSD)</span> <span id="hw-disk-val" class="mono text-main">0 GB</span></div><div class="hw-bar-bg"><div id="hw-disk-bar" class="hw-bar-fill" style="width: 0%; background:var(--info);"></div></div></div>
+                            <div><div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; font-weight:700; margin-bottom:8px;"><span>Disk Storage (GB)</span> <span id="hw-disk-val" class="mono text-main">0 GB</span></div><div class="hw-bar-bg"><div id="hw-disk-bar" class="hw-bar-fill" style="width: 0%; background:var(--info);"></div></div></div>
                         </div>
                     </div>
                 </div>
@@ -922,8 +1027,9 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             document.getElementById('hw-cpu-bar').style.width = `${Math.min(100, Number(t.cpuPct||0))}%`;
             document.getElementById('hw-ram-val').innerText = `${Math.round(t.ramMb||0)} MB`;
             document.getElementById('hw-ram-bar').style.width = `${Math.min(100, (Number(t.ramMb||0)/ramTotal)*100)}%`;
-            document.getElementById('hw-disk-val').innerText = `${t.diskUsedMb} / ${t.diskTotalMb} MB`;
-            document.getElementById('hw-disk-bar').style.width = t.diskTotalMb ? `${Math.min(100, (t.diskUsedMb/t.diskTotalMb)*100)}%` : '0%';
+            
+            document.getElementById('hw-disk-val').innerText = `${(t.diskUsedGb||0).toFixed(1)} / ${(t.diskTotalGb||0).toFixed(1)} GB`;
+            document.getElementById('hw-disk-bar').style.width = t.diskTotalGb ? `${Math.min(100, (t.diskUsedGb/t.diskTotalGb)*100)}%` : '0%';
             
             let usedCost = t.totalCost || 0;
             let remCost = Math.max(0, 5.0 - usedCost);
@@ -1139,7 +1245,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(type === 'proxy') {
                 transport = document.getElementById('transport-sel').value;
                 let pCnt = subEntries.filter(e => e.type === 'proxy').length;
-                nName = pCnt === 0 ? `R2ray ${transport.toUpperCase()}` : (`R2ray ${transport.toUpperCase()} ` + pCnt);
+                nName = `R2ray By Code-Leafy🍃 ${pCnt + 1}`;
             } else {
                 nName = 'R2ray %data-used%GB / %data-total%GB';
             }
@@ -1451,8 +1557,8 @@ def get_combined_state():
             "cpuPct": state.get("cpu_pct", 0),
             "ramMb": state.get("mem_used_mb", 0),
             "ramTotalMb": state.get("mem_total_mb", 512),
-            "diskUsedMb": state.get("disk_used_mb", 0),
-            "diskTotalMb": state.get("disk_total_mb", 0),
+            "diskUsedGb": state.get("disk_used_gb", 0),
+            "diskTotalGb": state.get("disk_total_gb", 0),
             "loadAvg": state.get("load_avg", [0, 0, 0]),
             "xrayUptimeSec": state.get("uptime_sec", 0),
             "xrayRunning": state.get("is_xray_running", False),
@@ -1561,14 +1667,59 @@ class WebUIHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/sub/'):
                 token = self.path.split('/')[-1]
                 token += "=" * ((4 - len(token) % 4) % 4)
-                client_id = base64.urlsafe_b64decode(token).decode("utf-8")
+                try:
+                    client_id = base64.urlsafe_b64decode(token).decode("utf-8")
+                except Exception:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
                 
+                ua = self.headers.get("User-Agent", "").lower()
+                is_client = any(x in ua for x in ["v2ray", "clash", "neko", "sing-box", "go-http", "shadowrocket", "surge", "quantumult", "xray"])
+                is_browser = not is_client and any(x in ua for x in ["mozilla", "chrome", "safari", "applewebkit", "edge"])
+                
+                with file_lock:
+                    try:
+                        with open(PANEL_STATE_FILE, "r") as f: pstate = json.load(f)
+                    except Exception: pstate = {}
+                    
+                client = next((c for c in pstate.get("clients", []) if c.get("id") == client_id), None)
+                if not client:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+
                 sub_content = generate_sub_for_client(client_id)
-                self.send_response(200)
-                self.send_header("Content-type", "text/plain; charset=utf-8")
-                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-                self.end_headers()
-                self.wfile.write(sub_content.encode("utf-8"))
+                
+                if is_browser:
+                    with state_lock:
+                        usage_diffs = state.get("client_usage_bytes", {})
+                        if client_id in usage_diffs:
+                            client["usage"] = client.get("usage", 0.0) + (usage_diffs[client_id] / 1073741824.0)
+
+                    sub_data = {
+                        "client": {
+                            "name": client.get("name", ""),
+                            "usage": client.get("usage", 0.0),
+                            "limit": client.get("limit", 0.0),
+                            "expiry": client.get("expiry", ""),
+                            "status": client.get("status", 1)
+                        },
+                        "links": sub_content.split('\n') if sub_content else []
+                    }
+                    
+                    html = SUB_HTML_TEMPLATE.replace("{{SUB_DATA_JSON}}", json.dumps(sub_data))
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(html.encode("utf-8"))
+                else:
+                    b64_content = base64.b64encode(sub_content.encode("utf-8")).decode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
+                    self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                    self.end_headers()
+                    self.wfile.write(b64_content.encode("utf-8"))
                 return
 
             if self.path == '/':
@@ -1874,10 +2025,10 @@ def system_monitor_thread():
 
             try:
                 total_d, used_d, free_d = shutil.disk_usage("/")
-                disk_used_mb = used_d // 1048576
-                disk_total_mb = total_d // 1048576
+                disk_used_gb = used_d / 1073741824.0
+                disk_total_gb = total_d / 1073741824.0
             except Exception:
-                disk_used_mb = disk_total_mb = 0
+                disk_used_gb = disk_total_gb = 0
 
             mem_gb = used_mb / 1024.0
             cost_this_sec = (mem_gb * 0.000231 / 60) * dt + (vcpus * 0.000463 / 60) * dt
@@ -1886,8 +2037,8 @@ def system_monitor_thread():
                 state["cpu_pct"] = cpu_pct
                 state["mem_used_mb"] = used_mb
                 state["mem_total_mb"] = tot_mb
-                state["disk_used_mb"] = disk_used_mb
-                state["disk_total_mb"] = disk_total_mb
+                state["disk_used_gb"] = disk_used_gb
+                state["disk_total_gb"] = disk_total_gb
                 state["load_avg"] = la
                 state["total_cost"] += cost_this_sec
 
