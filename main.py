@@ -16,7 +16,7 @@ import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
-LOCAL_VERSION = "6.1.0"
+LOCAL_VERSION = "7.0.0"
 AUTO_UPDATE = True
 UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
@@ -86,8 +86,10 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             --transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
-        ::selection { background: rgba(133, 59, 206, 0.4); color: #fff; }
-        ::-moz-selection { background: rgba(133, 59, 206, 0.4); color: #fff; }
+        
+        ::selection { background: rgba(133, 59, 206, 0.5); color: #ffffff; }
+        ::-moz-selection { background: rgba(133, 59, 206, 0.5); color: #ffffff; }
+        
         button, .btn, .btn-icon, .nav-item, .sidebar, .topbar, .modal-header, .modal-tabs, .modal-tab-btn, .tag, label.switch, .panel-title { user-select: none; }
         input, textarea, select, .mono, pre, code, #log-output, .modal-body, td, .form-label { user-select: text; }
         input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
@@ -101,6 +103,10 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
+        
+        #loader { position: fixed; inset: 0; background: var(--bg-base); z-index: 99999; display: flex; justify-content: center; align-items: center; transition: opacity 0.4s ease, visibility 0.4s; }
+        .spinner-ring { width: 40px; height: 40px; border: 3px solid var(--border-hover); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.85s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
         
         .sidebar { width: 260px; background-color: var(--bg-panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 100; transition: var(--transition); flex-shrink: 0; }
         .logo-box { height: 60px; display: flex; align-items: center; gap: 12px; padding: 0 24px; font-size: 1.15rem; font-weight: 800; color: #fff; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--bg-base); }
@@ -170,7 +176,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         select.form-control { -webkit-appearance: none; appearance: none; cursor: pointer; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 14px center; background-size: 14px; padding-right: 36px; }
         select.form-control:not(:disabled) { color: var(--text-main) !important; background-color: var(--bg-hover) !important; }
         select.form-control option { background-color: #1f1f22; color: #fafafa; }
-        
+
         .transport-sel {
             width: 140px; height: 38px; padding: 8px 30px 8px 12px; background-color: var(--bg-hover); border: 1px solid var(--border);
             color: var(--accent); border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; appearance: none; -webkit-appearance: none;
@@ -179,7 +185,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         }
         .transport-sel:hover { border-color: var(--accent); background-color: var(--bg-active); }
         .transport-sel:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
-
+        
         .input-group { display: flex; gap: 8px; }
         .switch { position: relative; display: inline-block; width: 38px; height: 20px; flex-shrink: 0; cursor: pointer; }
         .switch input { opacity: 0; width: 0; height: 0; }
@@ -317,6 +323,9 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             <p style="text-align:center;color:var(--text-muted);margin-bottom:24px;font-size:0.85rem;">Enter your R2ray Panel password</p>
             <input type="password" id="auth-pass-input" class="form-control" style="margin-bottom:16px;" placeholder="Password..." onkeypress="if(event.key==='Enter') window.submitAuth()">
             <button class="btn btn-primary" style="width:100%;" onclick="window.submitAuth()">Login</button>
+            <div style="margin-top: 24px; text-align: center;">
+                <a href="https://github.com/Code-Leafy/R2rayPanel" target="_blank" style="color:var(--text-muted); text-decoration:none; font-size:0.8rem; font-weight:600;"><i class="fa-brands fa-github"></i> R2rayPanel</a>
+            </div>
         </div>
         <div id="setup-box" class="panel" style="width:100%;max-width:460px;padding:32px;display:none;text-align:center;animation:slideFadeUp 0.3s ease;">
             <h2 style="margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation text-warning"></i> Security Setup Required</h2>
@@ -389,7 +398,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                             <div class="panel-body" style="gap: 16px; justify-content: center;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px;"><span style="color:var(--text-muted); font-weight:600; font-size:0.85rem;">Engine Status</span><span class="tag tag-red" id="dash-status-tag">Offline</span></div>
                                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px;"><span style="color:var(--text-muted); font-weight:600; font-size:0.85rem;">System Load Avg</span><span class="mono" id="dash-load-avg">0.00</span></div>
-                                <div style="display:flex; justify-content:space-between; align-items:center;"><span style="color:var(--text-muted); font-weight:600; font-size:0.85rem;">Memory Allocation</span><span class="mono" id="dash-mem-alloc">0 / 0 MB</span></div>
+                                <div style="display:flex; justify-content:space-between; align-items:center;"><span style="color:var(--text-muted); font-weight:600; font-size:0.85rem;">Memory Allocation</span><span class="mono" id="dash-mem-alloc">0.0 MB</span></div>
                             </div>
                         </div>
                         <div class="panel">
@@ -575,7 +584,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                     <div class="panel">
                         <div class="panel-header"><div class="panel-title"><i class="fa-solid fa-route text-accent"></i> Global Routing</div></div>
                         <div class="panel-body">
-                            <div class="settings-row"><div class="settings-info" style="width:50%;"><h4>Domain Strategy</h4></div><div style="width:50%;"><select class="form-control" id="adv-domain-strategy"><option value="AsIs">AsIs</option><option value="IPIfNonMatch">IPIfNonMatch</option><option value="UseIP" selected>UseIP</option><option value="IPOnDemand">IPOnDemand</option></select></div></div>
+                            <div class="settings-row"><div class="settings-info" style="width:50%;"><h4>Domain Strategy</h4></div><div style="width:50%;"><select class="form-control" id="adv-domain-strategy"><option value="AsIs">AsIs</option><option value="IPIfNonMatch" selected>IPIfNonMatch</option><option value="UseIP">UseIP</option><option value="IPOnDemand">IPOnDemand</option></select></div></div>
                             <div class="settings-row"><div class="settings-info"><h4>Deep Packet Sniffing</h4></div><label class="switch"><input type="checkbox" id="adv-deep-sniff" checked><span class="slider"></span></label></div>
                             <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:12px; border:none; padding-bottom: 20px;">
                                 <div class="settings-info"><h4>Sniffing Overrides</h4></div>
@@ -700,7 +709,6 @@ HTML_CONTENT = r"""<!DOCTYPE html>
     <div class="toast-box" id="toaster"></div>
 
     <script>
-        Chart.defaults.color = '#a1a1aa'; Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif"; Chart.defaults.font.size = 12;
         document.addEventListener('contextmenu', e => e.preventDefault());
         document.addEventListener('keydown', e => { if(e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I') || (e.ctrlKey && e.key === 'u')) e.preventDefault(); });
 
@@ -716,26 +724,16 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if (!options.headers) options.headers = {};
             options.headers['X-Auth-Pass'] = window.R2_PASS;
             const res = await fetch(url, options);
-            if (res.status === 401) {
-                document.getElementById('auth-overlay').style.display = 'flex';
-                document.getElementById('auth-box').style.display = 'block';
-                document.getElementById('setup-box').style.display = 'none';
-                document.getElementById('auth-loader').style.display = 'none';
-                throw new Error("Unauthorized");
-            }
-            if (res.status === 403) {
-                document.getElementById('auth-overlay').style.display = 'flex';
-                document.getElementById('setup-box').style.display = 'block';
-                document.getElementById('auth-box').style.display = 'none';
-                document.getElementById('auth-loader').style.display = 'none';
-                throw new Error("Setup Required");
+            if (res.status === 401 || res.status === 403) {
+                return res; 
             }
             return res;
         }
 
-        window.submitAuth = function() {
-            window.R2_PASS = document.getElementById('auth-pass-input').value;
-            localStorage.setItem('r2ray_pass', window.R2_PASS);
+        window.submitAuth = async function() {
+            const pass = document.getElementById('auth-pass-input').value;
+            window.R2_PASS = pass;
+            localStorage.setItem('r2ray_pass', pass);
             location.reload();
         }
 
@@ -767,28 +765,6 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                 mobileBtn.style.display = 'none';
             }
             if(window.innerWidth <= 1024) document.getElementById('sidebar').classList.remove('open');
-        }
-
-        function resetModalTabs(modalId) {
-            const modal = document.getElementById(modalId);
-            if(modal) {
-                const firstBtn = modal.querySelector('.modal-tab-btn');
-                const firstContent = modal.querySelector('.modal-tab-content');
-                if(firstBtn && firstContent) {
-                    modal.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.remove('active'));
-                    modal.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
-                    firstBtn.classList.add('active');
-                    firstContent.classList.add('active');
-                }
-            }
-        }
-
-        function switchModalTab(btn, contentId) {
-            const modal = btn.closest('.modal');
-            modal.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            modal.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
-            document.getElementById(contentId).classList.add('active');
         }
 
         function openModal(id) { document.getElementById(id).classList.add('show'); }
@@ -823,6 +799,10 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         }
 
         function ensureCharts() {
+            Chart.defaults.color = '#a1a1aa'; 
+            Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif"; 
+            Chart.defaults.font.size = 12;
+
             if(!trafficChart) {
                 trafficChart = new Chart(document.getElementById('chart-traffic').getContext('2d'), {
                     type: 'line', data: { labels: Array(60).fill(''), datasets: [
@@ -842,7 +822,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(!clientPieChart) {
                 clientPieChart = new Chart(document.getElementById('client-pie-chart').getContext('2d'), {
                     type: 'doughnut', data: { labels: [], datasets: [{ data: [], backgroundColor: ['#853BCE', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#ec4899'], borderWidth: 0 }] },
-                    options: { responsive: true, maintainAspectRatio: false, animation: false, cutout: '75%', plugins: { legend: { position: 'right', labels: { color: '#a1a1aa', usePointStyle: true, boxWidth: 6 } } } }
+                    options: { animation: false, responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels: { color: '#a1a1aa', usePointStyle: true, boxWidth: 6 } } } }
                 });
             }
             if(!clientFlowChart) {
@@ -942,12 +922,17 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             const ramTotal = Number(t.ramTotalMb || 4096);
             
             document.getElementById('dash-load-avg').innerText = t.loadAvg.map(x=>x.toFixed(2)).join(' / ');
-            document.getElementById('dash-mem-alloc').innerText = `${formatGBMB(t.ramMb)} / ${formatGBMB(t.ramTotalMb)}`;
+            
+            if (t.ramTotalMb > 100000) {
+                document.getElementById('dash-mem-alloc').innerText = `${formatGBMB(t.ramMb)} / Unlimited`;
+            } else {
+                document.getElementById('dash-mem-alloc').innerText = `${formatGBMB(t.ramMb)} / ${formatGBMB(t.ramTotalMb)}`;
+            }
             
             document.getElementById('hw-cpu-val').innerText = `${Number(t.cpuPct||0).toFixed(1)}%`;
             document.getElementById('hw-cpu-bar').style.width = `${Math.min(100, Number(t.cpuPct||0))}%`;
             document.getElementById('hw-ram-val').innerText = formatGBMB(t.ramMb);
-            document.getElementById('hw-ram-bar').style.width = `${Math.min(100, (Number(t.ramMb||0)/ramTotal)*100)}%`;
+            document.getElementById('hw-ram-bar').style.width = t.ramTotalMb > 100000 ? '0%' : `${Math.min(100, (Number(t.ramMb||0)/ramTotal)*100)}%`;
             document.getElementById('hw-disk-val').innerText = `${formatGBMB(t.diskUsedMb)} / ${formatGBMB(t.diskTotalMb)}`;
             document.getElementById('hw-disk-bar').style.width = t.diskTotalMb ? `${Math.min(100, (t.diskUsedMb/t.diskTotalMb)*100)}%` : '0%';
             
@@ -1036,9 +1021,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: serializePanelState(), reason })
                 });
-                if(!res) return;
-                const data = await res.json();
-                if(!data.ok) throw new Error(data.error || 'state sync failed');
+                if(!res || !res.ok) throw new Error('state sync failed');
             } catch (err) { showToast(`Backend sync failed`, 'error'); } 
             finally { backendSync.syncing = false; }
         };
@@ -1105,7 +1088,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(!backendSync.connected) return null;
             try {
                 const res = await fetchWithAuth(`/api/sub/link/${encodeURIComponent(clientId)}`);
-                if(!res) return null;
+                if(!res || !res.ok) return null;
                 const data = await res.json();
                 if(data.ok && data.link) return data.link;
             } catch(e) {} return null;
@@ -1323,9 +1306,31 @@ window.initBackendSync = async function() {
         try {
             let res = await fetchWithAuth('/api/state');
             if(!res) return;
+            
+            if(res.status === 401) {
+                if(document.getElementById('auth-box').style.display !== 'block') {
+                    document.getElementById('auth-overlay').style.display = 'flex';
+                    document.getElementById('auth-box').style.display = 'block';
+                    document.getElementById('setup-box').style.display = 'none';
+                    document.getElementById('auth-loader').style.display = 'none';
+                }
+                return;
+            }
+            if(res.status === 403) {
+                if(document.getElementById('setup-box').style.display !== 'block') {
+                    document.getElementById('auth-overlay').style.display = 'flex';
+                    document.getElementById('setup-box').style.display = 'block';
+                    document.getElementById('auth-box').style.display = 'none';
+                    document.getElementById('auth-loader').style.display = 'none';
+                }
+                return;
+            }
+
             let data = await res.json();
             if(data.ok) {
-                document.getElementById('auth-overlay').style.display = 'none';
+                if(document.getElementById('auth-overlay').style.display !== 'none') {
+                    document.getElementById('auth-overlay').style.display = 'none';
+                }
                 if(typeof applyPanelState === 'function' && data.state) {
                     applyPanelState(data.state, data);
                 }
@@ -1427,23 +1432,24 @@ def full_cleanup():
     free_port(API_PORT)
     time.sleep(0.5)
 
-def check_and_update():
-    if not AUTO_UPDATE: return
-    try:
-        req = urllib.request.urlopen(RAW_BASE + "r2ray.py", timeout=5)
-        remote_content = req.read()
-        with open(__file__, "rb") as f: local_content = f.read()
-        if remote_content.replace(b'\r\n', b'\n') != local_content.replace(b'\r\n', b'\n'):
-            target = os.path.abspath(__file__)
-            shutil.copyfile(target, target + ".bak")
-            with open(target, "wb") as f: f.write(remote_content)
-            os.chmod(target, 0o755)
-            os.execv(sys.executable, [sys.executable, target])
-    except Exception: pass
-
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+def get_mem_limit_mb():
+    try:
+        with open('/sys/fs/cgroup/memory.max') as f:
+            val = f.read().strip()
+            if val != 'max': return int(val) // 1048576
+    except: pass
+    try:
+        with open('/sys/fs/cgroup/memory/memory.limit_in_bytes') as f:
+            val = f.read().strip()
+            if val:
+                limit = int(val) // 1048576
+                if limit < 1000000: return limit
+    except: pass
+    return 0
 
 def get_combined_state():
     try:
@@ -1663,7 +1669,8 @@ class WebUIHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-        except Exception: pass
+        except Exception as e:
+            log_sys_err(f"WebUI GET Error: {e}")
         
     def do_PUT(self):
         try:
@@ -1705,7 +1712,8 @@ class WebUIHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-        except Exception: pass
+        except Exception as e:
+            log_sys_err(f"WebUI PUT Error: {e}")
         
     def do_POST(self):
         try:
@@ -1732,7 +1740,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-        except Exception:
+        except Exception as e:
             try:
                 self.send_response(500)
                 self.end_headers()
@@ -1744,7 +1752,7 @@ def web_server_thread(port):
 
 async def multiplexer(reader, writer):
     try:
-        data = await reader.read(4096)
+        data = await reader.read(8192)
         if not data:
             writer.close()
             return
@@ -1775,9 +1783,10 @@ async def multiplexer(reader, writer):
                 try: w.close()
                 except: pass
 
-        asyncio.create_task(pipe(reader, t_writer))
-        asyncio.create_task(pipe(t_reader, writer))
+        await asyncio.gather(pipe(reader, t_writer), pipe(t_reader, writer))
     except Exception:
+        pass
+    finally:
         try: writer.close()
         except: pass
 
@@ -1791,7 +1800,6 @@ def start_multiplexer():
 
 last_cpu_idle = 0.0
 last_cpu_total = 0.0
-last_tick_time = time.time()
 
 def sample_cpu_pct():
     global last_cpu_idle, last_cpu_total
@@ -1818,14 +1826,15 @@ def fetch_ip_info():
     except Exception: pass
 
 def system_monitor_thread():
-    global state, last_tick_time
+    global state
     tick = 0
     last_tick_time = time.time()
+    
     while engine_running:
         tick += 1
         try:
             current_time = time.time()
-            dt = current_time - last_tick_time
+            dt = min(current_time - last_tick_time, 5.0)
             last_tick_time = current_time
 
             cpu_val = sample_cpu_pct()
@@ -1841,7 +1850,12 @@ def system_monitor_thread():
                         parts = line.split()
                         if len(parts) >= 2: mem[parts[0].strip(':')] = int(parts[1])
                 used = (mem.get('MemTotal', 0) - mem.get('MemAvailable', mem.get('MemFree', 0))) / 1024
-                tot = mem.get('MemTotal', 0) / 1024
+                
+                limit_mb = get_mem_limit_mb()
+                if limit_mb > 0:
+                    tot = limit_mb
+                else:
+                    tot = mem.get('MemTotal', 0) / 1024
             except Exception: pass
             
             try:
