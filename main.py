@@ -16,7 +16,7 @@ import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
-LOCAL_VERSION = "6.1.0"
+LOCAL_VERSION = "6.2.0"
 AUTO_UPDATE = True
 UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
@@ -40,7 +40,6 @@ PANEL_PASSWORD = os.environ.get("PASS", "")
 RAILWAY_PORT = int(os.environ.get("PORT", 8080))
 XRAY_XHTTP_PORT = 10001
 XRAY_WS_PORT = 10003
-XRAY_GRPC_PORT = 10004
 WEB_PORT = 10002
 API_PORT = 10085
 
@@ -94,6 +93,12 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         h1, h2, h3, h4, h5 { font-weight: 700; letter-spacing: -0.01em; color: var(--text-main); }
         .mono { font-family: 'JetBrains Mono', monospace; }
         
+        .text-accent { color: var(--accent) !important; }
+        .text-info { color: var(--info) !important; }
+        .text-warning { color: var(--warning) !important; }
+        .text-danger { color: var(--danger) !important; }
+        .text-purple { color: var(--purple) !important; }
+        
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 10px; }
@@ -114,6 +119,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         .nav-item.active { background-color: var(--accent-bg); color: var(--accent); }
         .nav-item.active i { color: var(--accent); }
         .sidebar-footer { padding: 14px; text-align: center; font-size: 0.75rem; color: var(--text-muted); font-weight: 600; flex-shrink: 0; border-top: 1px solid var(--border); }
+        .sidebar-footer a:hover { color: var(--text-main) !important; }
         
         .app-wrapper { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-base); height: 100vh; overflow: hidden; }
         .topbar { height: 60px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background-color: var(--bg-base); z-index: 50; flex-shrink: 0; }
@@ -310,7 +316,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             <span style="font-size:1.8rem; font-weight:800; color:#fff;">R2ray<span style="color:var(--text-muted); font-weight:500;">Panel</span></span>
         </div>
         <div class="modal show" style="max-width: 420px; width: 100%; margin:0 20px; position:relative; transform:none; box-shadow:0 24px 60px rgba(0,0,0,0.8);">
-            <div class="modal-header" style="justify-content:center; padding:20px;"><div class="panel-title" style="font-size:1.1rem;"><i class="fa-solid fa-lock text-accent"></i> Authentication Required</div></div>
+            <div class="modal-header" style="justify-content:center; padding:20px;"><div class="panel-title" style="font-size:1.1rem;"><i class="fa-solid fa-lock text-accent" style="color:var(--accent);"></i> Authentication Required</div></div>
             <div class="modal-body" id="auth-body" style="padding:24px;"></div>
         </div>
     </div>
@@ -332,20 +338,25 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             <div class="nav-item" onclick="switchTab('settings')"><i class="fa-solid fa-gear"></i> Advanced Settings</div>
             <div class="nav-item" onclick="switchTab('logs')"><i class="fa-solid fa-terminal"></i> Console Logs</div>
         </div>
-        <div class="sidebar-footer">Built with <i class="fa-solid fa-bolt" style="color:var(--accent);"></i> on Railway</div>
+        <div class="sidebar-footer">
+            Built with <i class="fa-solid fa-bolt text-accent" style="color:var(--accent);"></i> on Railway
+            <div style="margin-top: 8px;">
+                <a href="https://github.com/Code-Leafy/R2rayPanel" target="_blank" style="color:var(--text-muted); text-decoration:none; font-size:0.75rem; transition: var(--transition); font-weight:700;"><i class="fa-brands fa-github"></i> R2rayPanel GitHub</a>
+            </div>
+        </div>
     </aside>
 
     <main class="app-wrapper">
         <header class="topbar hidden" id="main-topbar">
             <button class="mobile-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')"><i class="fa-solid fa-bars"></i></button>
             <div class="mini-stats" id="mini-stats">
-                <div class="mini-stat-item" style="color:var(--accent)"><i class="fa-solid fa-arrow-down-long"></i> <span id="m-rx-mini">0.00</span> GB</div>
-                <div class="mini-stat-item" style="color:var(--info)"><i class="fa-solid fa-arrow-up-long"></i> <span id="m-tx-mini">0.00</span> GB</div>
-                <div class="mini-stat-item" style="color:var(--purple)"><i class="fa-solid fa-gauge-high"></i> <span id="m-speed-mini">0 / 0</span> Mbps</div>
+                <div class="mini-stat-item text-accent"><i class="fa-solid fa-arrow-down-long"></i> <span id="m-rx-mini">0.00</span> GB</div>
+                <div class="mini-stat-item text-info"><i class="fa-solid fa-arrow-up-long"></i> <span id="m-tx-mini">0.00</span> GB</div>
+                <div class="mini-stat-item text-purple"><i class="fa-solid fa-gauge-high"></i> <span id="m-speed-mini">0 / 0</span> Mbps</div>
             </div>
             <div id="topbar-xray-status" style="display:flex; align-items:center; gap:8px; font-size:0.78rem; font-weight:700; font-family:'JetBrains Mono',monospace;">
                 <span id="topbar-xray-dot" style="width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 6px var(--accent); display:inline-block; flex-shrink:0; transition:background 0.3s, box-shadow 0.3s;"></span>
-                <span id="topbar-xray-label" style="color:var(--accent); transition:color 0.3s;">Xray ON</span>
+                <span id="topbar-xray-label" class="text-accent" style="transition:color 0.3s;">Xray ON</span>
             </div>
         </header>
         
@@ -356,10 +367,10 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             <div id="tab-dashboard" class="tab-view active">
                 <div class="header-section"><div><h2>System Dashboard</h2><p>Real-time telemetry and core engine controls.</p></div></div>
                 <div class="grid-4">
-                    <div class="metric-card"><div class="metric-title">Download <i class="fa-solid fa-arrow-down-long" style="color:var(--accent)"></i></div><div class="metric-val mono" id="m-rx">0.00 <span class="metric-sub">GB</span></div></div>
-                    <div class="metric-card"><div class="metric-title">Upload <i class="fa-solid fa-arrow-up-long" style="color:var(--info)"></i></div><div class="metric-val mono" id="m-tx">0.00 <span class="metric-sub">GB</span></div></div>
-                    <div class="metric-card"><div class="metric-title">Speed (DL/UL) <i class="fa-solid fa-gauge-high" style="color:var(--purple)"></i></div><div class="metric-val mono" id="m-speed">0 <span class="metric-sub">/ 0 Mbps</span></div></div>
-                    <div class="metric-card"><div class="metric-title">Core Uptime <i class="fa-solid fa-clock" style="color:var(--warning)"></i></div><div class="metric-val mono" id="m-uptime">0h 00m</div></div>
+                    <div class="metric-card"><div class="metric-title">Download <i class="fa-solid fa-arrow-down-long text-accent"></i></div><div class="metric-val mono" id="m-rx">0.00 <span class="metric-sub">GB</span></div></div>
+                    <div class="metric-card"><div class="metric-title">Upload <i class="fa-solid fa-arrow-up-long text-info"></i></div><div class="metric-val mono" id="m-tx">0.00 <span class="metric-sub">GB</span></div></div>
+                    <div class="metric-card"><div class="metric-title">Speed (DL/UL) <i class="fa-solid fa-gauge-high text-purple"></i></div><div class="metric-val mono" id="m-speed">0 <span class="metric-sub">/ 0 Mbps</span></div></div>
+                    <div class="metric-card"><div class="metric-title">Core Uptime <i class="fa-solid fa-clock text-warning"></i></div><div class="metric-val mono" id="m-uptime">0h 00m</div></div>
                 </div>
 
                 <div class="grid-2" style="flex: 1; min-height: 320px; flex-shrink: 0;">
@@ -406,7 +417,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                             <div style="padding:20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                                 <div><div class="form-label">City</div><div id="cs-city" style="font-weight:600; font-size:0.85rem;">N/A</div></div>
                                 <div><div class="form-label">Country</div><div id="cs-country" style="font-weight:600; font-size:0.85rem;">N/A</div></div>
-                                <div><div class="form-label">Public IPv4</div><div id="cs-ipv4" class="mono" style="color:var(--info); font-weight:600; font-size:0.85rem;">N/A</div></div>
+                                <div><div class="form-label">Public IPv4</div><div id="cs-ipv4" class="mono text-info" style="font-weight:600; font-size:0.85rem;">N/A</div></div>
                                 <div><div class="form-label">Provider</div><div id="cs-provider" style="font-weight:600; font-size:0.85rem;">Railway</div></div>
                             </div>
                         </div>
@@ -420,8 +431,8 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                                     <span style="color:var(--text-muted);">Total Budget: $5.00</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; font-weight:700; font-size:0.8rem;">
-                                    <span id="q-cost-used" style="color:var(--danger);">Used: $0.00</span>
-                                    <span id="q-cost-rem" style="color:var(--accent);">Remaining: $5.00</span>
+                                    <span id="q-cost-used" class="text-danger">Used: $0.00</span>
+                                    <span id="q-cost-rem" class="text-accent">Remaining: $5.00</span>
                                 </div>
                                 <div class="hw-bar-bg" style="margin-top:0;"><div id="q-cost-bar" class="hw-bar-fill" style="width:0%; background:var(--danger);"></div></div>
                             </div>
@@ -431,8 +442,8 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                                     <span style="color:var(--text-muted);">Time Limit: 30 Days (720h)</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; font-weight:700; font-size:0.8rem;">
-                                    <span id="q-time-used" style="color:var(--warning);">Used: 0.0h</span>
-                                    <span id="q-time-rem" style="color:var(--accent);">Remaining: 720.0h</span>
+                                    <span id="q-time-used" class="text-warning">Used: 0.0h</span>
+                                    <span id="q-time-rem" class="text-accent">Remaining: 720.0h</span>
                                 </div>
                                 <div class="hw-bar-bg" style="margin-top:0;"><div id="q-time-bar" class="hw-bar-fill" style="width:0%; background:var(--warning);"></div></div>
                             </div>
@@ -495,7 +506,6 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                                     <select id="transport-sel" class="form-control" style="width: 130px; height: 30px; padding: 4px; font-size: 0.75rem;">
                                         <option value="xhttp">xHTTP (Rec.)</option>
                                         <option value="ws">WebSocket</option>
-                                        <option value="grpc">gRPC</option>
                                     </select>
                                     <button class="btn" style="padding:4px 10px; height: 30px; font-size:0.75rem;" onclick="window.addSubEntry('proxy')"><i class="fa-solid fa-plus"></i> Proxy</button>
                                     <button class="btn" style="padding:4px 10px; height: 30px; font-size:0.75rem; background:var(--info-bg); color:var(--info); border:none;" onclick="window.addSubEntry('info')"><i class="fa-solid fa-circle-info"></i> Info</button>
@@ -952,8 +962,11 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                 clientPieChart.update();
             }
             if(clientFlowChart) {
-                clientFlowChart.data.datasets[0].data.push(t.speedDownMbps || 0);
-                clientFlowChart.data.datasets[1].data.push(t.speedUpMbps || 0);
+                let activeClients = clients.filter(c => c.status === 1).length;
+                let cDl = activeClients > 0 ? (t.speedDownMbps || 0) : 0;
+                let cUl = activeClients > 0 ? (t.speedUpMbps || 0) : 0;
+                clientFlowChart.data.datasets[0].data.push(cDl);
+                clientFlowChart.data.datasets[1].data.push(cUl);
                 if(clientFlowChart.data.datasets[0].data.length > 30) {
                     clientFlowChart.data.datasets[0].data.shift();
                     clientFlowChart.data.datasets[1].data.shift();
@@ -1203,7 +1216,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             }
             let html = '';
             subEntries.forEach(entry => {
-                const icon = entry.type === 'proxy' ? '<i class="fa-solid fa-shield-halved" style="color:var(--accent)"></i>' : '<i class="fa-solid fa-circle-info" style="color:var(--info)"></i>';
+                const icon = entry.type === 'proxy' ? '<i class="fa-solid fa-shield-halved text-accent"></i>' : '<i class="fa-solid fa-circle-info text-info"></i>';
                 const sub = entry.type === 'proxy' ? (entry.ipAddress || 'Auto IP') + ` • ${(entry.transport||'xhttp').toUpperCase()}` : 'Info';
                 const title = window.resolvePlaceholders(entry.name, client);
                 html += `<div class="phone-item ${entry.type==='info'?'info-item':''}">
@@ -1234,11 +1247,9 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                 let trans = entry.transport || 'xhttp';
                 
                 if(trans === 'ws') {
-                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=http/1.1&type=ws&host=${window.PORT_DOMAIN}&path=%2Fws#${name}`;
-                } else if (trans === 'grpc') {
-                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=h2&type=grpc&serviceName=grpc#${name}`;
+                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=h3,h2,http/1.1&type=ws&host=${window.PORT_DOMAIN}&path=%2Fws#${name}`;
                 } else {
-                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=http/1.1&type=xhttp&host=${window.PORT_DOMAIN}&path=%2Fxray&mode=packet-up#${name}`;
+                    link = `vless://${client.id}@${ip}:443?encryption=none&security=tls&sni=${window.PORT_DOMAIN}&fp=chrome&alpn=h3,h2,http/1.1&type=xhttp&host=${window.PORT_DOMAIN}&path=%2Fxray&mode=packet-up#${name}`;
                 }
             } else {
                 let text = encodeURIComponent(window.resolvePlaceholders(entry.name, client));
@@ -1263,9 +1274,8 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             const cfg = {
                 log: { level: adv.logLevel || 'warning', access: adv.accessLog ? "access.log" : "none", error: "xray.log" },
                 inbounds: [
-                    { tag: "vless-xhttp", port: 10001, protocol: "vless", streamSettings: { network: "xhttp", xhttpSettings: { mode: "packet-up", path: "/xray" }, sockopt: { tcpFastOpen: true } } },
-                    { tag: "vless-ws", port: 10003, protocol: "vless", streamSettings: { network: "ws", wsSettings: { path: "/ws" }, sockopt: { tcpFastOpen: true } } },
-                    { tag: "vless-grpc", port: 10004, protocol: "vless", streamSettings: { network: "grpc", grpcSettings: { serviceName: "grpc" }, sockopt: { tcpFastOpen: true } } }
+                    { tag: "vless-xhttp", port: 10001, protocol: "vless", streamSettings: { network: "xhttp", xhttpSettings: { mode: "packet-up", path: "/xray" }, sockopt: { tcpFastOpen: true, tcpNoDelay: true } } },
+                    { tag: "vless-ws", port: 10003, protocol: "vless", streamSettings: { network: "ws", wsSettings: { path: "/ws" }, sockopt: { tcpFastOpen: true, tcpNoDelay: true } } }
                 ],
                 outbounds: [ { tag: "direct", protocol: "freedom" }, { tag: "block", protocol: "blackhole" } ]
             };
@@ -1391,7 +1401,6 @@ def full_cleanup():
     free_port(RAILWAY_PORT)
     free_port(XRAY_XHTTP_PORT)
     free_port(XRAY_WS_PORT)
-    free_port(XRAY_GRPC_PORT)
     free_port(WEB_PORT)
     free_port(API_PORT)
     time.sleep(0.5)
@@ -1467,11 +1476,9 @@ def format_vless_link(client_id, client_name, transport="xhttp", ip=None):
     addr = ip if ip else RAILWAY_PUBLIC_DOMAIN
     sni = RAILWAY_PUBLIC_DOMAIN
     if transport == "ws":
-        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=http/1.1&type=ws&host={sni}&path=%2Fws#{tag}"
-    elif transport == "grpc":
-        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=h2&type=grpc&serviceName=grpc#{tag}"
+        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=h3,h2,http/1.1&type=ws&host={sni}&path=%2Fws#{tag}"
     else:
-        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=http/1.1&type=xhttp&host={sni}&path=%2Fxray&mode=packet-up#{tag}"
+        return f"vless://{client_id}@{addr}:443?encryption=none&security=tls&sni={sni}&fp=chrome&alpn=h3,h2,http/1.1&type=xhttp&host={sni}&path=%2Fxray&mode=packet-up#{tag}"
 
 def format_info_link(info_text):
     tag = urllib.parse.quote(info_text)
@@ -1518,7 +1525,6 @@ def generate_sub_for_client(client_id):
         name = apply_placeholders(client.get("name", "R2ray_Client"))
         lines.append(format_vless_link(client_id, f"{name} (xHTTP)", "xhttp"))
         lines.append(format_vless_link(client_id, f"{name} (WS)", "ws"))
-        lines.append(format_vless_link(client_id, f"{name} (gRPC)", "grpc"))
 
     return "\n".join(lines)
 
@@ -1711,9 +1717,7 @@ async def multiplexer(reader, writer):
             return
 
         target_port = WEB_PORT
-        if data.startswith(b"PRI * HTTP/2.0"):
-            target_port = XRAY_GRPC_PORT
-        elif b" /xray" in data:
+        if b" /xray" in data:
             target_port = XRAY_XHTTP_PORT
         elif b" /ws" in data:
             target_port = XRAY_WS_PORT
@@ -2006,7 +2010,7 @@ def generate_xray_config():
             "streamSettings": {
                 "network": "xhttp", "security": "none",
                 "xhttpSettings": { "mode": "packet-up", "path": "/xray" },
-                "sockopt": { "tcpFastOpen": True }
+                "sockopt": { "tcpFastOpen": True, "tcpNoDelay": True }
             },
             "sniffing": { "enabled": adv.get("deepSniff", True), "destOverride": sniff_override }
         },
@@ -2016,17 +2020,7 @@ def generate_xray_config():
             "streamSettings": {
                 "network": "ws", "security": "none",
                 "wsSettings": { "path": "/ws" },
-                "sockopt": { "tcpFastOpen": True }
-            },
-            "sniffing": { "enabled": adv.get("deepSniff", True), "destOverride": sniff_override }
-        },
-        {
-            "tag": "vless-grpc", "port": XRAY_GRPC_PORT, "listen": "127.0.0.1", "protocol": "vless",
-            "settings": { "clients": inb_clients, "decryption": "none" },
-            "streamSettings": {
-                "network": "grpc", "security": "none",
-                "grpcSettings": { "serviceName": "grpc" },
-                "sockopt": { "tcpFastOpen": True }
+                "sockopt": { "tcpFastOpen": True, "tcpNoDelay": True }
             },
             "sniffing": { "enabled": adv.get("deepSniff", True), "destOverride": sniff_override }
         },
@@ -2060,7 +2054,12 @@ def generate_xray_config():
         },
         "inbounds": inbounds,
         "outbounds": [
-            {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": adv.get("domainStrategy", "UseIP")}},
+            {
+                "tag": "direct", 
+                "protocol": "freedom", 
+                "settings": {"domainStrategy": adv.get("domainStrategy", "UseIP")},
+                "sockopt": {"tcpFastOpen": True, "tcpNoDelay": True}
+            },
             {"tag": "block", "protocol": "blackhole"}
         ]
     }
