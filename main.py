@@ -16,7 +16,7 @@ import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
-LOCAL_VERSION = "6.3.0"
+LOCAL_VERSION = "6.4.0"
 AUTO_UPDATE = True
 UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
@@ -67,13 +67,14 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Subscription Profile</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><path fill='%23853BCE' d='M368 48H144C108.7 48 80 76.7 80 112V352c0 23.4 12.6 44.1 31.2 55.4l-24 48c-4.5 9-1.9 20.2 6.2 26.2s19.3 5.3 26.5-1.9L166.1 432H346l46.2 47.7c7.2 7.2 18.4 7.9 26.5 1.9s10.7-17.2 6.2-26.2l-24-48c18.6-11.3 31.2-32 31.2-55.4V112C432 76.7 403.3 48 368 48zM144 112H368c8.8 0 16 7.2 16 16v96H128v-96C128 119.2 135.2 112 144 112zM256 368c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32S273.7 368 256 368z'/></svg>" />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
-        :root { --bg-base: #09090b; --bg-panel: #121214; --bg-hover: #1f1f22; --border: rgba(255,255,255,0.08); --text-main: #fafafa; --text-muted: #a1a1aa; --accent: #853BCE; --accent-hover: #672E9E; --accent-bg: rgba(133,59,206,0.12); --danger: #ef4444; --warning: #f59e0b; --success: #10b981; --radius-md: 16px; --radius-sm: 10px; }
+        :root { --bg-base: #09090b; --bg-panel: #121214; --bg-hover: #1f1f22; --border: rgba(255,255,255,0.08); --border-hover: rgba(255,255,255,0.15); --text-main: #fafafa; --text-muted: #a1a1aa; --accent: #853BCE; --accent-hover: #672E9E; --accent-bg: rgba(133,59,206,0.12); --danger: #ef4444; --warning: #f59e0b; --success: #10b981; --info: #3b82f6; --purple: #8b5cf6; --radius-md: 16px; --radius-sm: 10px; }
         body { background: var(--bg-base); color: var(--text-main); font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 24px 16px; display: flex; justify-content: center; min-height: 100vh; box-sizing: border-box; }
-        .container { max-width: 480px; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+        .container { max-width: 480px; width: 100%; display: flex; flex-direction: column; gap: 20px; padding-bottom: 30px; }
         .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 24px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
         .card-title { margin: 0 0 16px 0; font-size: 1.15rem; font-weight: 800; display: flex; align-items: center; gap: 10px; }
         .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -82,7 +83,7 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
         .stat-val { font-size: 1.15rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
         .tag { padding: 4px 12px; border-radius: 8px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
         .btn { width: 100%; background: var(--bg-hover); color: var(--text-main); border: 1px solid var(--border); padding: 14px; border-radius: var(--radius-sm); font-size: 0.9rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; transition: all 0.2s ease; margin-top: 12px; }
-        .btn:hover { background: var(--border); transform: translateY(-1px); }
+        .btn:hover { background: var(--border-hover); transform: translateY(-1px); }
         .btn-primary { background: var(--accent); color: #fff; border: none; box-shadow: 0 4px 12px rgba(133,59,206,0.3); }
         .btn-primary:hover { background: var(--accent-hover); }
         .btn-icon { width: 40px; height: 40px; padding: 0; margin: 0; }
@@ -98,6 +99,17 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
         .qr-modal.show { display: flex; }
         .qr-card { background: #fff; padding: 24px; border-radius: var(--radius-md); text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); transform: translateY(0); transition: transform 0.3s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .text-accent { color: var(--accent) !important; }
+        .text-info { color: var(--info) !important; }
+        .text-warning { color: var(--warning) !important; }
+        .text-purple { color: var(--purple) !important; }
+        .import-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
+        .btn-import { background: var(--bg-base); border: 1px solid var(--border); color: var(--text-main); text-decoration: none; padding: 14px 10px; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 700; text-align: center; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+        .btn-import:hover { background: var(--bg-hover); border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(133,59,206,0.15); }
+        .btn-import i { font-size: 1.5rem; }
+        .footer { text-align: center; margin-top: 20px; font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
+        .footer a { color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
+        .footer a:hover { color: var(--text-main); }
     </style>
 </head>
 <body>
@@ -109,17 +121,24 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
         </div>
     </div>
     <script>
-        const DATA = {{SUB_DATA_JSON}};
+        const DATA = JSON.parse(atob('{{SUB_DATA_B64}}'));
         function fmtGB(v){ return !v ? '∞' : v.toFixed(2)+' GB'; }
         function fmtDate(d){ return !d ? 'Never' : new Date(d).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}); }
         function cp(t){ navigator.clipboard.writeText(t).then(()=>{ const el=document.createElement('div'); el.innerText='Copied!'; el.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--success);color:#fff;padding:10px 20px;border-radius:20px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(16,185,129,0.3);'; document.body.appendChild(el); setTimeout(()=>el.remove(),2000); }); }
         function qr(t){ document.getElementById('qrcode').innerHTML=''; new QRCode(document.getElementById('qrcode'),{text:t,width:220,height:220,colorDark:"#000000",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M}); document.getElementById('qr-modal').classList.add('show'); }
+        
         function render(){
             const u = DATA.client.usage||0; const l = DATA.client.limit||0; const p = l>0?Math.min(100,(u/l)*100):0;
             const cls = p>90?'danger':(p>75?'warning':'');
+            const subUrl = encodeURIComponent(window.location.href);
+            const subName = encodeURIComponent(DATA.client.name);
+            const b64Url = btoa(window.location.href);
+            
             document.getElementById('app').innerHTML = `
                 <div style="text-align:center; margin-bottom:8px;">
-                    <i class="fa-solid fa-leaf" style="font-size:2.5rem; color:var(--accent); margin-bottom:12px; text-shadow:0 0 20px var(--accent-bg);"></i>
+                    <svg viewBox="0 0 512 512" fill="var(--accent)" style="width:52px; height:52px; margin-bottom:12px; filter:drop-shadow(0 0 12px var(--accent-bg));">
+                        <path d="M368 48H144C108.7 48 80 76.7 80 112V352c0 23.4 12.6 44.1 31.2 55.4l-24 48c-4.5 9-1.9 20.2 6.2 26.2s19.3 5.3 26.5-1.9L166.1 432H346l46.2 47.7c7.2 7.2 18.4 7.9 26.5 1.9s10.7-17.2 6.2-26.2l-24-48c18.6-11.3 31.2-32 31.2-55.4V112C432 76.7 403.3 48 368 48zM144 112H368c8.8 0 16 7.2 16 16v96H128v-96C128 119.2 135.2 112 144 112zM256 368c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32S273.7 368 256 368z"/>
+                    </svg>
                     <h1 style="margin:0; font-size:1.8rem; font-weight:800; letter-spacing:-0.03em;">R2ray Panel</h1>
                     <p style="color:var(--text-muted); font-size:0.85rem; font-weight:600; margin-top:6px;">Subscription Environment</p>
                 </div>
@@ -139,6 +158,15 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
                         <div class="stat-box"><div class="stat-label">Remaining</div><div class="stat-val" style="font-size:0.95rem;">${l?fmtGB(Math.max(0,l-u)):'∞'}</div></div>
                     </div>
                     <button class="btn btn-primary" style="margin-top:20px;" onclick="cp(window.location.href)"><i class="fa-solid fa-link"></i> Copy Subscription Link</button>
+                    <div style="margin-top:24px;">
+                        <h3 style="font-size:0.9rem; font-weight:800; color:var(--text-main); margin:0 0 10px 0;"><i class="fa-solid fa-bolt text-warning"></i> One-Click Import</h3>
+                        <div class="import-grid">
+                            <a href="v2rayng://install-sub?url=${subUrl}&name=${subName}" class="btn-import"><i class="fa-solid fa-v text-accent"></i> v2rayNG</a>
+                            <a href="hiddify://install-sub?url=${subUrl}&name=${subName}" class="btn-import"><i class="fa-solid fa-shield-cat text-info"></i> Hiddify</a>
+                            <a href="shadowrocket://add/sub://${b64Url}?title=${subName}" class="btn-import"><i class="fa-solid fa-rocket text-warning"></i> Shadowrocket</a>
+                            <a href="sing-box://import-remote-profile?url=${subUrl}&name=${subName}" class="btn-import"><i class="fa-solid fa-box text-purple"></i> Sing-Box</a>
+                        </div>
+                    </div>
                 </div>
                 <div class="card">
                     <h2 class="card-title"><i class="fa-solid fa-network-wired text-accent"></i> Core Configurations</h2>
@@ -158,6 +186,9 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
                             </div>`;
                         }).join('')}
                     </div>
+                </div>
+                <div class="footer">
+                    Powered by <a href="https://github.com/Code-Leafy/R2rayPanel" target="_blank"><i class="fa-brands fa-github"></i> R2rayPanel</a>
                 </div>
             `;
         }
@@ -1708,7 +1739,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
                         "links": sub_content.split('\n') if sub_content else []
                     }
                     
-                    html = SUB_HTML_TEMPLATE.replace("{{SUB_DATA_JSON}}", json.dumps(sub_data))
+                    b64_json = base64.b64encode(json.dumps(sub_data).encode("utf-8")).decode("utf-8")
+                    html = SUB_HTML_TEMPLATE.replace("{{SUB_DATA_B64}}", b64_json)
+                    
                     self.send_response(200)
                     self.send_header("Content-type", "text/html; charset=utf-8")
                     self.end_headers()
