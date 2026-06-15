@@ -600,7 +600,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                         <div style="display: flex; flex-direction: column; gap: 20px; padding-right: 16px;">
                             <div><div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; font-weight:700; margin-bottom:8px;"><span>CPU Load (2 vCores)</span> <span id="hw-cpu-val" class="mono text-main">0%</span></div><div class="hw-bar-bg"><div id="hw-cpu-bar" class="hw-bar-fill" style="width: 0%; background:var(--warning);"></div></div></div>
                             <div><div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; font-weight:700; margin-bottom:8px;"><span>Memory Usage</span> <span id="hw-ram-val" class="mono text-main">0 MB</span></div><div class="hw-bar-bg"><div id="hw-ram-bar" class="hw-bar-fill" style="width: 0%; background:var(--purple);"></div></div></div>
-                            <div><div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; font-weight:700; margin-bottom:8px;"><span>Disk Storage (GB)</span> <span id="hw-disk-val" class="mono text-main">0 GB</span></div><div class="hw-bar-bg"><div id="hw-disk-bar" class="hw-bar-fill" style="width: 0%; background:var(--info);"></div></div></div>
+                            <div><div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; font-weight:700; margin-bottom:8px;"><span>Disk Storage (MB)</span> <span id="hw-disk-val" class="mono text-main">0 MB</span></div><div class="hw-bar-bg"><div id="hw-disk-bar" class="hw-bar-fill" style="width: 0%; background:var(--info);"></div></div></div>
                         </div>
                     </div>
                 </div>
@@ -1062,7 +1062,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             document.getElementById('hw-ram-val').innerText = `${Math.round(t.ramMb||0)} MB`;
             document.getElementById('hw-ram-bar').style.width = `${Math.min(100, (Number(t.ramMb||0)/ramTotal)*100)}%`;
             
-            document.getElementById('hw-disk-val').innerText = `${(t.diskUsedGb||0).toFixed(1)} / ${(t.diskTotalGb||0).toFixed(1)} GB`;
+            document.getElementById('hw-disk-val').innerText = `${(t.diskUsedGb||0).toFixed(1)} / ${(t.diskTotalGb||0).toFixed(1)} MB`;
             document.getElementById('hw-disk-bar').style.width = t.diskTotalGb ? `${Math.min(100, (t.diskUsedGb/t.diskTotalGb)*100)}%` : '0%';
             
             let usedCost = t.totalCost || 0;
