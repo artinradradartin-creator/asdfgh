@@ -17,9 +17,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
 LOCAL_VERSION = "7.0.0"
-AUTO_UPDATE = True
-UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
-RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -221,7 +218,9 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         .modal-tab-content.active { display: flex; animation: slideFadeUp 0.2s ease forwards; }
         .modal-footer { padding: 18px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; background: rgba(255,255,255,0.01); border-radius: 0 0 var(--radius-md) var(--radius-md); }
         
-        .chart-wrapper { position: relative; width: 100%; height: 100%; min-height: 0; min-width: 0; flex: 1; display: flex; align-items: center; justify-content: center; }
+        .chart-wrapper { position: relative; width: 100%; height: 100%; min-height: 180px; flex: 1; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        .chart-wrapper canvas { max-width: 100%; max-height: 100%; display: block; }
+        
         .map-container { width: 100%; height: 160px; background: var(--bg-base); position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; border-bottom: 1px solid var(--border); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px; flex-shrink: 0; }
         @keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes pulseDot { 0% { transform: scale(1); box-shadow: 0 0 10px var(--accent); } 50% { transform: scale(1.5); box-shadow: 0 0 25px var(--accent); } 100% { transform: scale(1); box-shadow: 0 0 10px var(--accent); } }
@@ -449,8 +448,8 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                                     <span style="color:var(--text-muted);">Total Budget: $5.00</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; font-weight:700; font-size:0.8rem;">
-                                    <span id="q-cost-used" style="color:var(--danger);">Used: $0.00</span>
-                                    <span id="q-cost-rem" style="color:var(--accent);">Remaining: $5.00</span>
+                                    <span id="q-cost-used" style="color:var(--danger);">Used: $0.0000</span>
+                                    <span id="q-cost-rem" style="color:var(--accent);">Remaining: $5.0000</span>
                                 </div>
                                 <div class="hw-bar-bg" style="margin-top:0;"><div id="q-cost-bar" class="hw-bar-fill" style="width:0%; background:var(--danger);"></div></div>
                             </div>
@@ -720,12 +719,24 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         
         const backendSync = { connected: false, syncing: false, debounceHandle: null };
 
+        let isAuthError = false;
+
         async function fetchWithAuth(url, options = {}) {
             if (!options.headers) options.headers = {};
             options.headers['X-Auth-Pass'] = window.R2_PASS;
             const res = await fetch(url, options);
             if (res.status === 401 || res.status === 403) {
-                return res; 
+                isAuthError = true;
+                document.getElementById('auth-overlay').style.display = 'flex';
+                if (res.status === 401) {
+                    document.getElementById('auth-box').style.display = 'block';
+                    document.getElementById('setup-box').style.display = 'none';
+                } else {
+                    document.getElementById('setup-box').style.display = 'block';
+                    document.getElementById('auth-box').style.display = 'none';
+                }
+                document.getElementById('auth-loader').style.display = 'none';
+                return null;
             }
             return res;
         }
@@ -760,9 +771,15 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if (tabId === 'dashboard') {
                 topbar.classList.add('hidden');
                 mobileBtn.style.display = window.innerWidth <= 1024 ? 'block' : 'none';
+                if(trafficChart) trafficChart.resize();
+                if(hwChart) hwChart.resize();
             } else {
                 topbar.classList.remove('hidden');
                 mobileBtn.style.display = 'none';
+                if (tabId === 'clients') {
+                    if(clientPieChart) clientPieChart.resize();
+                    if(clientFlowChart) clientFlowChart.resize();
+                }
             }
             if(window.innerWidth <= 1024) document.getElementById('sidebar').classList.remove('open');
         }
@@ -918,13 +935,13 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             let s = t.xrayUptimeSec || 0;
             document.getElementById('m-uptime').innerText = xrayUp ? `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60).toString().padStart(2,'0')}m` : 'Stopped';
             
-            const formatGBMB = mb => mb >= 1024 ? (mb / 1024).toFixed(2) + " GB" : mb.toFixed(1) + " MB";
+            const formatGBMB = mb => mb >= 1000 ? (mb / 1024).toFixed(1) + " GB" : mb.toFixed(1) + " MB";
             const ramTotal = Number(t.ramTotalMb || 4096);
             
             document.getElementById('dash-load-avg').innerText = t.loadAvg.map(x=>x.toFixed(2)).join(' / ');
             
             if (t.ramTotalMb > 100000) {
-                document.getElementById('dash-mem-alloc').innerText = `${formatGBMB(t.ramMb)} / Unlimited`;
+                document.getElementById('dash-mem-alloc').innerText = `${formatGBMB(t.ramMb)} / Unlim`;
             } else {
                 document.getElementById('dash-mem-alloc').innerText = `${formatGBMB(t.ramMb)} / ${formatGBMB(t.ramTotalMb)}`;
             }
@@ -1014,14 +1031,16 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         };
 
         window.pushPanelState = async function(reason='sync') {
-            if(backendSync.syncing || !backendSync.connected) return;
+            if(backendSync.syncing || isAuthError) return;
             backendSync.syncing = true;
             try {
                 const res = await fetchWithAuth('/api/state', {
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: serializePanelState(), reason })
                 });
-                if(!res || !res.ok) throw new Error('state sync failed');
+                if(!res) return;
+                const data = await res.json();
+                if(!data.ok) throw new Error('state sync failed');
             } catch (err) { showToast(`Backend sync failed`, 'error'); } 
             finally { backendSync.syncing = false; }
         };
@@ -1302,30 +1321,11 @@ window.initBackendSync = async function() {
     let lastLogLine = "";
     
     async function syncLoop() {
-        if(backendSync.syncing) return;
+        if(backendSync.syncing || isAuthError) return;
         try {
             let res = await fetchWithAuth('/api/state');
             if(!res) return;
             
-            if(res.status === 401) {
-                if(document.getElementById('auth-box').style.display !== 'block') {
-                    document.getElementById('auth-overlay').style.display = 'flex';
-                    document.getElementById('auth-box').style.display = 'block';
-                    document.getElementById('setup-box').style.display = 'none';
-                    document.getElementById('auth-loader').style.display = 'none';
-                }
-                return;
-            }
-            if(res.status === 403) {
-                if(document.getElementById('setup-box').style.display !== 'block') {
-                    document.getElementById('auth-overlay').style.display = 'flex';
-                    document.getElementById('setup-box').style.display = 'block';
-                    document.getElementById('auth-box').style.display = 'none';
-                    document.getElementById('auth-loader').style.display = 'none';
-                }
-                return;
-            }
-
             let data = await res.json();
             if(data.ok) {
                 if(document.getElementById('auth-overlay').style.display !== 'none') {
@@ -1800,6 +1800,7 @@ def start_multiplexer():
 
 last_cpu_idle = 0.0
 last_cpu_total = 0.0
+last_tick_time = time.time()
 
 def sample_cpu_pct():
     global last_cpu_idle, last_cpu_total
@@ -1826,7 +1827,7 @@ def fetch_ip_info():
     except Exception: pass
 
 def system_monitor_thread():
-    global state
+    global state, last_tick_time
     tick = 0
     last_tick_time = time.time()
     
@@ -2119,7 +2120,6 @@ def main():
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
 
-    check_and_update()
     full_cleanup()
     
     if not os.path.exists(PANEL_STATE_FILE):
