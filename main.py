@@ -60,31 +60,31 @@ _COST_MEM_GB_MIN  = 0.000231 / 60
 _COST_CPU_MIN     = 0.000463 / 60
 _COST_EGRESS_GB   = 0.05
 
-# Auth
-_session_tokens = {}
-_session_lock   = threading.Lock()
+# Auth - stateless HMAC session (survives container restarts)
+_SESSION_KEY  = secrets.token_bytes(32)   # ephemeral per-process signing key
+_login_lock   = threading.Lock()
 _login_attempts = {}
 _LOGIN_MAX    = 10
 _LOGIN_WINDOW = 60
 _UUID_RE = None  # compiled in main()
 
+def _make_session_token(password):
+    """Derive a deterministic token from password + process key."""
+    return hmac.new(_SESSION_KEY, password.encode(), hashlib.sha256).hexdigest()
+
 def _issue_session_token():
-    tok = secrets.token_urlsafe(32)
-    h   = hashlib.sha256(tok.encode()).hexdigest()
-    with _session_lock:
-        _session_tokens[tok] = h
-    return tok
+    """Return a valid session token for the current PANEL_PASSWORD."""
+    return _make_session_token(PANEL_PASSWORD) if PANEL_PASSWORD else ""
 
 def _check_session_token(tok):
-    if not tok: return False
-    with _session_lock:
-        stored = _session_tokens.get(tok)
-    if not stored: return False
-    return hmac.compare_digest(hashlib.sha256(tok.encode()).hexdigest(), stored)
+    """Constant-time verify a session token."""
+    if not tok or not PANEL_PASSWORD: return False
+    expected = _make_session_token(PANEL_PASSWORD)
+    return hmac.compare_digest(tok, expected)
 
 def _is_rate_limited(ip):
-    now = __import__("time").time()
-    with _session_lock:
+    now = time.time()
+    with _login_lock:
         ts = [t for t in _login_attempts.get(ip, []) if now - t < _LOGIN_WINDOW]
         if len(ts) >= _LOGIN_MAX:
             _login_attempts[ip] = ts
@@ -1831,6 +1831,12 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 self.wfile.write(PANEL_WIRING_JS.encode())
                 return
 
+            # Return 404 for unknown public paths rather than leaking 401
+            if not self.path.startswith('/api/'):
+                self.send_response(404)
+                self.end_headers()
+                return
+
             if not self.check_auth():
                 self.send_response(401)
                 self.end_headers()
@@ -1855,6 +1861,12 @@ class WebUIHandler(BaseHTTPRequestHandler):
         
     def do_PUT(self):
         try:
+            # Return 404 for unknown public paths rather than leaking 401
+            if not self.path.startswith('/api/'):
+                self.send_response(404)
+                self.end_headers()
+                return
+
             if not self.check_auth():
                 self.send_response(401)
                 self.end_headers()
@@ -1919,7 +1931,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                         os.rename(tmp, PANEL_STATE_FILE)
                     tok = _issue_session_token()
                     self.send_response(200)
-                    self.send_header('Set-Cookie', f'sess={urllib.parse.quote(tok)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=31536000')
+                    self.send_header('Set-Cookie', f'sess={urllib.parse.quote(tok)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000')
                     self.send_header("Content-type", "application/json")
                     self.end_headers()
                     self.wfile.write(b'{"ok":true}')
@@ -1943,7 +1955,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 if PANEL_PASSWORD and hmac.compare_digest(supplied, PANEL_PASSWORD):
                     tok = _issue_session_token()
                     self.send_response(200)
-                    self.send_header('Set-Cookie', f'sess={urllib.parse.quote(tok)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=31536000')
+                    self.send_header('Set-Cookie', f'sess={urllib.parse.quote(tok)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000')
                     self.send_header("Content-type", "application/json")
                     self.end_headers()
                     self.wfile.write(b'{"ok":true}')
