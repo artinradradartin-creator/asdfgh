@@ -1489,6 +1489,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
     <script src="/panel-wiring.js"></script>
 </body>
 </html>"""
+_HTML_BYTES = HTML_CONTENT.encode("utf-8")
 
 PANEL_WIRING_JS = """
 window.initBackendSync = async function() {
