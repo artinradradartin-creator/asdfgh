@@ -1832,7 +1832,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b64_content.encode("utf-8"))
                 return
 
-            if self.path in ('/', '/panel', '/panel/', '/login', '/login/', '/admin', '/admin/'):
+            if self.path in ('/panel', '/panel/', '/login', '/login/', '/admin', '/admin/'):
                 self.send_response(200)
                 self.send_header("Content-type", "text/html; charset=utf-8")
                 self.end_headers()
