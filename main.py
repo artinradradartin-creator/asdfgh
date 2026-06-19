@@ -25,8 +25,10 @@ UPSTREAM_REPO = "Code-Leafy/Rw2Ray"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-LOG_DIR = os.path.join(BASE_DIR, "logs")
+# Use Railway Volume mount path if available, otherwise fall back to local data/
+_VOLUME = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "")
+DATA_DIR = os.path.join(_VOLUME, "data") if _VOLUME else os.path.join(BASE_DIR, "data")
+LOG_DIR  = os.path.join(_VOLUME, "logs") if _VOLUME else os.path.join(BASE_DIR, "logs")
 
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 PANEL_STATE_FILE = os.path.join(DATA_DIR, "panel_state.json")
@@ -60,8 +62,14 @@ _COST_MEM_GB_MIN  = 0.000231 / 60
 _COST_CPU_MIN     = 0.000463 / 60
 _COST_EGRESS_GB   = 0.05
 
-# Auth - stateless HMAC session (survives container restarts)
-_SESSION_KEY  = secrets.token_bytes(32)   # ephemeral per-process signing key
+# Auth - stateless HMAC session
+# _SESSION_KEY is re-derived whenever PANEL_PASSWORD is set/changed
+_SESSION_KEY = secrets.token_bytes(32)  # initial random; replaced once password known
+_SESSION_SALT = b"rw2ray-session-v1"
+
+def _derive_session_key(password):
+    """Derive stable signing key from password. Same key across restarts."""
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), _SESSION_SALT, 100_000)
 _login_lock   = threading.Lock()
 _login_attempts = {}
 _LOGIN_MAX    = 10
@@ -69,8 +77,9 @@ _LOGIN_WINDOW = 60
 _UUID_RE = None  # compiled in main()
 
 def _make_session_token(password):
-    """Derive a deterministic token from password + process key."""
-    return hmac.new(_SESSION_KEY, password.encode(), hashlib.sha256).hexdigest()
+    """Derive a deterministic token stable across restarts."""
+    key = _derive_session_key(password)
+    return hmac.new(key, b"session-token", hashlib.sha256).hexdigest()
 
 def _issue_session_token():
     """Return a valid session token for the current PANEL_PASSWORD."""
