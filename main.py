@@ -25,7 +25,6 @@ UPSTREAM_REPO = "Code-Leafy/Rw2Ray"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Use Railway Volume mount path if available, otherwise fall back to local data/
 _VOLUME = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "")
 DATA_DIR = os.path.join(_VOLUME, "data") if _VOLUME else os.path.join(BASE_DIR, "data")
 LOG_DIR  = os.path.join(_VOLUME, "logs") if _VOLUME else os.path.join(BASE_DIR, "logs")
@@ -104,6 +103,13 @@ def _is_rate_limited(ip):
 
 file_lock = threading.RLock()
 engine_running = True
+
+# Multiplexer guard
+_mux_started = False
+_mux_lock = threading.Lock()
+
+# XRay start guard
+_xray_start_lock = threading.Lock()
 
 state = {
     "total_down": 0, "total_up": 0, "uptime_sec": 0,
@@ -1226,7 +1232,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: serializePanelState(), reason })
                 });
-                if(res.status === 401) return location.reload();
+                if(res.status === 401) return (location.href = '/');
                 const data = await res.json();
                 if(!data.ok) throw new Error(data.error || 'state sync failed');
             } catch (err) { showToast(`Backend sync failed: ${err.message || err}`, 'error'); } 
@@ -1294,7 +1300,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         async function getSubscriptionLink(clientId) {
             try {
                 const res = await fetch(`/api/sub/link/${encodeURIComponent(clientId)}`);
-                if(res.status === 401) return location.reload();
+                if(res.status === 401) return (location.href = '/');
                 const data = await res.json();
                 if(data.ok && data.link) return data.link;
             } catch(e) {} return null;
@@ -1495,7 +1501,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(window.initBackendSync && loggedIn) window.initBackendSync();
         };
     </script>
-    <script src="/panel-wiring.js"></script>
+    <script src="/wiring.js"></script>
 </body>
 </html>"""
 _HTML_BYTES = HTML_CONTENT.encode("utf-8")
@@ -1509,7 +1515,7 @@ window.initBackendSync = async function() {
         if(backendSync.syncing) return;
         try {
             let res = await fetch('/api/state');
-            if(res.status === 401) return location.reload();
+            if(res.status === 401) return (location.href = '/');
             if(!res.ok) throw new Error('Network error');
             let data = await res.json();
             if(data.ok) {
@@ -1540,7 +1546,7 @@ window.setXrayStatus = async function(action) {
     if(action !== 'clear_logs') showToast('Executing ' + action + '...', 'info');
     try {
         let res = await fetch('/api/action', { method: 'POST', body: JSON.stringify({action}), headers: {'Content-Type': 'application/json'} });
-        if(res.status === 401) return location.reload();
+        if(res.status === 401) return (location.href = '/');
         if(res.ok && action !== 'clear_logs') showToast('Command completed: ' + action, 'success');
         else if(!res.ok) showToast('Command failed', 'error');
     } catch(e) { showToast('Network error', 'error'); }
@@ -1825,7 +1831,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b64_content.encode("utf-8"))
                 return
 
-            if self.path == '/':
+            if self.path in ('/', '/panel', '/panel/'):
                 self.send_response(200)
                 self.send_header("Content-type", "text/html; charset=utf-8")
                 self.end_headers()
@@ -1833,8 +1839,8 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 li = b"true" if self.check_auth() else b"false"
                 self.wfile.write(_HTML_BYTES.replace(b"{{PASS_SETUP}}", ps).replace(b"{{LOGGED_IN}}", li))
                 return
-                
-            if self.path == '/panel-wiring.js':
+
+            if self.path == '/wiring.js':
                 self.send_response(200)
                 self.send_header("Content-type", "application/javascript")
                 self.end_headers()
@@ -1884,6 +1890,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
 
             if self.path == '/api/state':
                 length = int(self.headers.get('Content-Length', 0))
+                if length <= 0 or length > 5_000_000:
+                    self.send_json(400, {"ok": False, "error": "Invalid Content-Length"})
+                    return
                 body = self.rfile.read(length).decode()
                 data = json.loads(body)
                 new_state = data.get("state", {})
@@ -1926,6 +1935,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
             if self.path == '/api/setup':
                 global PANEL_PASSWORD
                 length = int(self.headers.get('Content-Length', 0))
+                if length <= 0 or length > 5_000_000:
+                    self.send_json(400, {"ok": False, "error": "Invalid Content-Length"})
+                    return
                 data = json.loads(self.rfile.read(length).decode('utf-8'))
                 new_pass = data.get("pass", "")
                 if not PANEL_PASSWORD and new_pass:
@@ -1960,6 +1972,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b'{"ok":false,"error":"Too many attempts"}')
                     return
                 length = int(self.headers.get('Content-Length', 0))
+                if length <= 0 or length > 5_000_000:
+                    self.wfile.write(b'{"ok":false,"error":"Invalid Content-Length"}')
+                    return
                 data = json.loads(self.rfile.read(length).decode())
                 supplied = data.get("pass", "")
                 if PANEL_PASSWORD and hmac.compare_digest(supplied, PANEL_PASSWORD):
@@ -1983,6 +1998,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
 
             if self.path == '/api/action':
                 length = int(self.headers.get('Content-Length', 0))
+                if length <= 0 or length > 5_000_000:
+                    self.send_json(400, {"ok": False, "error": "Invalid Content-Length"})
+                    return
                 body = self.rfile.read(length).decode()
                 data = json.loads(body)
                 handle_api_action(data)
@@ -2033,10 +2051,11 @@ async def multiplexer(reader, writer):
             writer.close()
             return
 
-        target_port = WEB_PORT
-        if b" /xray" in data:
+        # Route by path prefix
+        target_port = WEB_PORT  # default: panel, /panel, /sub, /api
+        if b" /xray" in data or b" /xray/" in data:
             target_port = XRAY_XHTTP_PORT
-        elif b" /ws" in data:
+        elif b" /ws" in data or b" /ws/" in data:
             target_port = XRAY_WS_PORT
 
         t_reader, t_writer = await asyncio.open_connection('127.0.0.1', target_port)
@@ -2062,11 +2081,23 @@ async def multiplexer(reader, writer):
         except: pass
 
 def start_multiplexer():
+    global _mux_started
+    with _mux_lock:
+        if _mux_started:
+            return
+        _mux_started = True
+    
     def run():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        server = loop.run_until_complete(asyncio.start_server(multiplexer, '0.0.0.0', RAILWAY_PORT))
-        loop.run_forever()
+        global _mux_started
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            server = loop.run_until_complete(asyncio.start_server(multiplexer, '0.0.0.0', RAILWAY_PORT))
+            loop.run_forever()
+        except Exception as e:
+            log_sys_err(f"Multiplexer error: {e}")
+            with _mux_lock:
+                _mux_started = False
     threading.Thread(target=run, daemon=True).start()
 
 def sample_cpu_pct_host():
@@ -2399,31 +2430,32 @@ def generate_xray_config():
     except Exception: pass
 
 def start_xray():
-    for attempt in range(5):
-        full_cleanup()
-        generate_xray_config()
-        
-        try:
-            subprocess.check_output([XRAY_BIN, "run", "-test", "-c", CONFIG_FILE], stderr=subprocess.STDOUT, text=True)
-        except subprocess.CalledProcessError as e:
-            log_sys_err(f"xray config test failed (attempt {attempt+1}): {e.output}")
+    with _xray_start_lock:
+        for attempt in range(5):
+            full_cleanup()
+            generate_xray_config()
+            
+            try:
+                subprocess.check_output([XRAY_BIN, "run", "-test", "-c", CONFIG_FILE], stderr=subprocess.STDOUT, text=True)
+            except subprocess.CalledProcessError as e:
+                log_sys_err(f"xray config test failed (attempt {attempt+1}): {e.output}")
+                stop_xray()
+                time.sleep(1.5)
+                continue
+
+            try: subprocess.Popen([XRAY_BIN, "run", "-c", CONFIG_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception: pass
+                
+            ok = False
+            for _ in range(75):
+                if check_xray_running() and check_port_listening(XRAY_XHTTP_PORT):
+                    ok = True
+                    break
+                time.sleep(0.2)
+            if ok:
+                return
             stop_xray()
             time.sleep(1.5)
-            continue
-
-        try: subprocess.Popen([XRAY_BIN, "run", "-c", CONFIG_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception: pass
-            
-        ok = False
-        for _ in range(75):
-            if check_xray_running() and check_port_listening(XRAY_XHTTP_PORT):
-                ok = True
-                break
-            time.sleep(0.2)
-        if ok:
-            return
-        stop_xray()
-        time.sleep(1.5)
 
 def stop_xray():
     try: subprocess.run(["pkill", "-9", "-x", "xray"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
