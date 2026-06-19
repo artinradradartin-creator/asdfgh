@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
 LOCAL_VERSION = "1.0.0"
-AUTO_UPDATE = True
+AUTO_UPDATE = False
 UPSTREAM_REPO = "Code-Leafy/Rw2Ray"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
 
