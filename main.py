@@ -1226,7 +1226,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: serializePanelState(), reason })
                 });
-                if(res.status === 401) return (location.href = '/panel');
+                if(res.status === 401) return location.reload();
                 const data = await res.json();
                 if(!data.ok) throw new Error(data.error || 'state sync failed');
             } catch (err) { showToast(`Backend sync failed: ${err.message || err}`, 'error'); } 
@@ -1294,7 +1294,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         async function getSubscriptionLink(clientId) {
             try {
                 const res = await fetch(`/api/sub/link/${encodeURIComponent(clientId)}`);
-                if(res.status === 401) return (location.href = '/panel');
+                if(res.status === 401) return location.reload();
                 const data = await res.json();
                 if(data.ok && data.link) return data.link;
             } catch(e) {} return null;
@@ -1495,7 +1495,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(window.initBackendSync && loggedIn) window.initBackendSync();
         };
     </script>
-    <script src="/panel/wiring.js"></script>
+    <script src="/panel-wiring.js"></script>
 </body>
 </html>"""
 _HTML_BYTES = HTML_CONTENT.encode("utf-8")
@@ -1509,7 +1509,7 @@ window.initBackendSync = async function() {
         if(backendSync.syncing) return;
         try {
             let res = await fetch('/api/state');
-            if(res.status === 401) return (location.href = '/panel');
+            if(res.status === 401) return location.reload();
             if(!res.ok) throw new Error('Network error');
             let data = await res.json();
             if(data.ok) {
@@ -1540,7 +1540,7 @@ window.setXrayStatus = async function(action) {
     if(action !== 'clear_logs') showToast('Executing ' + action + '...', 'info');
     try {
         let res = await fetch('/api/action', { method: 'POST', body: JSON.stringify({action}), headers: {'Content-Type': 'application/json'} });
-        if(res.status === 401) return (location.href = '/panel');
+        if(res.status === 401) return location.reload();
         if(res.ok && action !== 'clear_logs') showToast('Command completed: ' + action, 'success');
         else if(!res.ok) showToast('Command failed', 'error');
     } catch(e) { showToast('Network error', 'error'); }
@@ -1825,12 +1825,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b64_content.encode("utf-8"))
                 return
 
-            if self.path in ('/', '/panel', '/panel/'):
-                if self.path == '/':
-                    self.send_response(301)
-                    self.send_header("Location", "/panel")
-                    self.end_headers()
-                    return
+            if self.path == '/':
                 self.send_response(200)
                 self.send_header("Content-type", "text/html; charset=utf-8")
                 self.end_headers()
@@ -1838,8 +1833,8 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 li = b"true" if self.check_auth() else b"false"
                 self.wfile.write(_HTML_BYTES.replace(b"{{PASS_SETUP}}", ps).replace(b"{{LOGGED_IN}}", li))
                 return
-
-            if self.path == '/panel/wiring.js':
+                
+            if self.path == '/panel-wiring.js':
                 self.send_response(200)
                 self.send_header("Content-type", "application/javascript")
                 self.end_headers()
@@ -2038,11 +2033,10 @@ async def multiplexer(reader, writer):
             writer.close()
             return
 
-        # Route by path prefix
-        target_port = WEB_PORT  # default: panel, /panel, /sub, /api
-        if b" /xray" in data or b" /xray/" in data:
+        target_port = WEB_PORT
+        if b" /xray" in data:
             target_port = XRAY_XHTTP_PORT
-        elif b" /ws" in data or b" /ws/" in data:
+        elif b" /ws" in data:
             target_port = XRAY_WS_PORT
 
         t_reader, t_writer = await asyncio.open_connection('127.0.0.1', target_port)
@@ -2436,7 +2430,7 @@ def stop_xray():
     except Exception: pass
 
 def print_start_banner():
-    panel_url = f"https://{RAILWAY_PUBLIC_DOMAIN}/panel"
+    panel_url = f"https://{RAILWAY_PUBLIC_DOMAIN}/"
     print("\n" + "="*60)
     print("🚀 RW2RAY STARTED SUCCESSFULLY ON RAILWAY")
     print("="*60)
