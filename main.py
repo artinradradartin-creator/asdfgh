@@ -13,12 +13,15 @@ import threading
 import urllib.request
 import urllib.parse
 import signal
+import hmac
+import hashlib
+import secrets
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
-LOCAL_VERSION = "6.5.0"
+LOCAL_VERSION = "1.0.0"
 AUTO_UPDATE = True
-UPSTREAM_REPO = "Code-Leafy/R2rayPanel"
+UPSTREAM_REPO = "Code-Leafy/Rw2Ray"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,7 +49,50 @@ API_PORT = 10085
 for d in [DATA_DIR, LOG_DIR]:
     os.makedirs(d, exist_ok=True)
 
+_pstate_cache = {}
 state_lock = threading.Lock()
+
+BYTES_PER_GB = 1_073_741_824
+BITS_PER_MBIT = 1_000_000.0
+
+# Cost rates
+_COST_MEM_GB_MIN  = 0.000231 / 60
+_COST_CPU_MIN     = 0.000463 / 60
+_COST_EGRESS_GB   = 0.05
+
+# Auth
+_session_tokens = {}
+_session_lock   = threading.Lock()
+_login_attempts = {}
+_LOGIN_MAX    = 10
+_LOGIN_WINDOW = 60
+_UUID_RE = None  # compiled in main()
+
+def _issue_session_token():
+    tok = secrets.token_urlsafe(32)
+    h   = hashlib.sha256(tok.encode()).hexdigest()
+    with _session_lock:
+        _session_tokens[tok] = h
+    return tok
+
+def _check_session_token(tok):
+    if not tok: return False
+    with _session_lock:
+        stored = _session_tokens.get(tok)
+    if not stored: return False
+    return hmac.compare_digest(hashlib.sha256(tok.encode()).hexdigest(), stored)
+
+def _is_rate_limited(ip):
+    now = __import__("time").time()
+    with _session_lock:
+        ts = [t for t in _login_attempts.get(ip, []) if now - t < _LOGIN_WINDOW]
+        if len(ts) >= _LOGIN_MAX:
+            _login_attempts[ip] = ts
+            return True
+        ts.append(now)
+        _login_attempts[ip] = ts
+    return False
+
 file_lock = threading.RLock()
 engine_running = True
 
@@ -142,7 +188,7 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
                     <svg viewBox="0 0 512 512" fill="var(--accent)" style="width:52px; height:52px; margin-bottom:12px; filter:drop-shadow(0 0 12px var(--accent-bg));">
                         <path d="M368 48H144C108.7 48 80 76.7 80 112V352c0 23.4 12.6 44.1 31.2 55.4l-24 48c-4.5 9-1.9 20.2 6.2 26.2s19.3 5.3 26.5-1.9L166.1 432H346l46.2 47.7c7.2 7.2 18.4 7.9 26.5 1.9s10.7-17.2 6.2-26.2l-24-48c18.6-11.3 31.2-32 31.2-55.4V112C432 76.7 403.3 48 368 48zM144 112H368c8.8 0 16 7.2 16 16v96H128v-96C128 119.2 135.2 112 144 112zM256 368c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32S273.7 368 256 368z"/>
                     </svg>
-                    <h1 style="margin:0; font-size:1.8rem; font-weight:800; letter-spacing:-0.03em;">R2ray Panel</h1>
+                    <h1 style="margin:0; font-size:1.8rem; font-weight:800; letter-spacing:-0.03em;">Rw2Ray</h1>
                     <p style="color:var(--text-muted); font-size:0.85rem; font-weight:600; margin-top:6px;">Subscription Environment</p>
                 </div>
                 <div class="card">
@@ -191,7 +237,7 @@ SUB_HTML_TEMPLATE = r"""<!DOCTYPE html>
                     </div>
                 </div>
                 <div class="footer">
-                    Powered by <a href="https://github.com/Code-Leafy/R2rayPanel" target="_blank"><i class="fa-brands fa-github"></i> R2rayPanel</a>
+                    Powered by <a href="https://github.com/Code-Leafy/Rw2Ray" target="_blank"><i class="fa-brands fa-github"></i> Rw2Ray</a>
                 </div>
             `;
         }
@@ -205,7 +251,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>R2ray Panel - Railway</title>
+    <title>Rw2Ray</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -452,10 +498,10 @@ HTML_CONTENT = r"""<!DOCTYPE html>
     <div id="auth-overlay" class="modal-overlay" style="display:none; opacity:1; z-index:100000; background: var(--bg-base); flex-direction:column; justify-content:center; align-items:center;">
         <div class="logo-box" style="margin-bottom:24px; border:none; background:transparent; padding:0;">
             <svg viewBox="0 0 512 512" fill="var(--accent)"><path d="M368 48H144C108.7 48 80 76.7 80 112V352c0 23.4 12.6 44.1 31.2 55.4l-24 48c-4.5 9-1.9 20.2 6.2 26.2s19.3 5.3 26.5-1.9L166.1 432H346l46.2 47.7c7.2 7.2 18.4 7.9 26.5 1.9s10.7-17.2 6.2-26.2l-24-48c18.6-11.3 31.2-32 31.2-55.4V112C432 76.7 403.3 48 368 48zM144 112H368c8.8 0 16 7.2 16 16v96H128v-96C128 119.2 135.2 112 144 112zM256 368c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32S273.7 368 256 368z"/></svg>
-            <span style="font-size:1.8rem; font-weight:800; color:#fff;">R2ray<span style="color:var(--text-muted); font-weight:500;">Panel</span></span>
+            <span style="font-size:1.8rem; font-weight:800; color:#fff;">Rw2Ray</span>
         </div>
         <div class="modal show" style="max-width: 420px; width: 100%; margin:0 20px; position:relative; transform:none; box-shadow:0 24px 60px rgba(0,0,0,0.8);">
-            <div class="modal-header" style="justify-content:center; padding:20px;"><div class="panel-title" style="font-size:1.1rem;"><i class="fa-solid fa-lock text-accent" style="color:var(--accent);"></i> Authentication Required</div></div>
+            <div class="modal-header" style="justify-content:center; padding:20px;"><div id="auth-title" class="panel-title" style="font-size:1.1rem;"><i class="fa-solid fa-lock text-accent" style="color:var(--accent);"></i> Authentication Required</div></div>
             <div class="modal-body" id="auth-body" style="padding:24px;"></div>
         </div>
     </div>
@@ -463,7 +509,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
     <aside class="sidebar" id="sidebar">
         <div class="logo-box">
             <svg viewBox="0 0 512 512" fill="var(--accent)"><path d="M368 48H144C108.7 48 80 76.7 80 112V352c0 23.4 12.6 44.1 31.2 55.4l-24 48c-4.5 9-1.9 20.2 6.2 26.2s19.3 5.3 26.5-1.9L166.1 432H346l46.2 47.7c7.2 7.2 18.4 7.9 26.5 1.9s10.7-17.2 6.2-26.2l-24-48c18.6-11.3 31.2-32 31.2-55.4V112C432 76.7 403.3 48 368 48zM144 112H368c8.8 0 16 7.2 16 16v96H128v-96C128 119.2 135.2 112 144 112zM256 368c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32S273.7 368 256 368z"/></svg>
-            R2ray<span style="color:var(--text-muted); font-weight:500;">Panel</span>
+            Rw2Ray
         </div>
         <div class="nav-menu">
             <div class="nav-label">Core Analytics</div>
@@ -482,7 +528,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                 Built with <i class="fa-solid fa-mug-hot text-accent"></i> by <a href="https://github.com/Code-Leafy" target="_blank" style="color:var(--text-main); text-decoration:none; font-weight:700;">Code-Leafy</a>
             </div>
             <div>
-                <a href="https://github.com/Code-Leafy/R2rayPanel" target="_blank" style="color:var(--text-muted); text-decoration:none; transition: var(--transition); font-weight:700;"><i class="fa-brands fa-github"></i> R2ray</a>
+                <a href="https://github.com/Code-Leafy/Rw2Ray" target="_blank" style="color:var(--text-muted); text-decoration:none; transition: var(--transition); font-weight:700;"><i class="fa-brands fa-github"></i> Rw2Ray</a>
             </div>
         </div>
     </aside>
@@ -836,33 +882,46 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         
         if (!passSetup) {
             document.getElementById('auth-overlay').style.display = 'flex';
+            document.getElementById('auth-title').innerHTML = '<i class="fa-solid fa-key text-accent"></i> Setup Password';
             document.getElementById('auth-body').innerHTML = `
-                <p style="text-align:center; color:var(--text-muted); font-size:0.85rem; line-height:1.6; margin-bottom: 8px;">
-                    You need to setup a password environment key.<br><br>
-                    1. Open your project in Railway.<br>
-                    2. Go to <strong>Variables</strong> and click <strong>New Variable</strong>.<br>
-                    3. Set <code>VARIABLE_NAME</code> to <strong>PASS</strong>.<br>
-                    4. Enter your desired password and click <strong>Add</strong>.
-                </p>
-                <button class="btn btn-primary" style="width:100%; margin-top: 10px;" onclick="location.reload()"><i class="fa-solid fa-rotate"></i> Done</button>
+                <p style="color:var(--text-muted); font-size:0.85rem; text-align:center; margin-bottom:20px;">Welcome to Rw2Ray. Please create a secure password to continue.</p>
+                <div class="form-group"><label class="form-label">New Password</label><input type="password" class="form-control" id="new-pass-input" placeholder="Enter password..."></div>
+                <div class="form-group" style="margin-top:8px;"><label class="form-label">Confirm Password</label><input type="password" class="form-control" id="confirm-pass-input" placeholder="Confirm password..." onkeydown="if(event.key==='Enter') window.setupPassword()"></div>
+                <button class="btn btn-primary" style="width:100%; margin-top:20px;" onclick="window.setupPassword()"><i class="fa-solid fa-arrow-right"></i> Save & Continue</button>
+                <div style="text-align:center; margin-top:20px; font-size:0.8rem; color:var(--text-muted);">
+                    <a href="https://github.com/Code-Leafy/Rw2Ray" target="_blank" style="color:var(--text-main); text-decoration:none;"><i class="fa-brands fa-github"></i> Rw2Ray</a>
+                </div>
             `;
         } else if (!loggedIn) {
             document.getElementById('auth-overlay').style.display = 'flex';
+            document.getElementById('auth-title').innerHTML = '<i class="fa-solid fa-lock text-accent"></i> Authentication Required';
             document.getElementById('auth-body').innerHTML = `
-                <div class="form-group" style="margin-bottom: 16px;">
-                    <label class="form-label">Panel Password</label>
-                    <input type="password" class="form-control" id="pass-input" placeholder="Enter password..." onkeydown="if(event.key==='Enter') window.doLogin()">
+                <div class="form-group"><label class="form-label">Password</label><input type="password" class="form-control" id="pass-input" placeholder="Enter password..." onkeydown="if(event.key==='Enter') window.doLogin()"></div>
+                <button class="btn btn-primary" style="width:100%; margin-top:20px;" onclick="window.doLogin()"><i class="fa-solid fa-arrow-right-to-bracket"></i> Login</button>
+                <div style="text-align:center; margin-top:20px; font-size:0.8rem; color:var(--text-muted);">
+                    <a href="https://github.com/Code-Leafy/Rw2Ray" target="_blank" style="color:var(--text-main); text-decoration:none;"><i class="fa-brands fa-github"></i> Rw2Ray</a>
                 </div>
-                <button class="btn btn-primary" style="width:100%;" onclick="window.doLogin()"><i class="fa-solid fa-right-to-bracket"></i> Login</button>
             `;
         }
+
+        window.setupPassword = function() {
+            const p1 = document.getElementById('new-pass-input').value;
+            const p2 = document.getElementById('confirm-pass-input').value;
+            if(!p1) return showToast('Password cannot be empty', 'error');
+            if(p1 !== p2) return showToast('Passwords do not match', 'error');
+            fetch('/api/setup', { method:'POST', body:JSON.stringify({pass: p1}) })
+                .then(r=>r.json()).then(d=>{
+                if(d.ok) { document.getElementById('loader').style.opacity = '1'; document.getElementById('loader').style.visibility = 'visible'; setTimeout(() => location.reload(), 300); }
+                else { showToast('Setup failed', 'error'); }
+            }).catch(()=>showToast('Network error', 'error'));
+        };
 
         window.doLogin = function() {
             const p = document.getElementById('pass-input').value;
             if(!p) return showToast('Enter a password', 'error');
             fetch('/api/login', { method:'POST', body:JSON.stringify({pass: p}) })
                 .then(r=>r.json()).then(d=>{
-                if(d.ok) { document.getElementById('loader').style.opacity = '1'; document.getElementById('loader').style.visibility = 'visible'; setTimeout(() => location.reload(), 300); } 
+                if(d.ok) { document.getElementById('loader').style.opacity = '1'; document.getElementById('loader').style.visibility = 'visible'; setTimeout(() => location.reload(), 300); }
                 else { showToast('Incorrect password', 'error'); }
             }).catch(()=>showToast('Network error', 'error'));
         };
@@ -1278,9 +1337,9 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(type === 'proxy') {
                 transport = document.getElementById('transport-sel').value;
                 let pCnt = subEntries.filter(e => e.type === 'proxy').length;
-                nName = `R2ray By Code-Leafy🍃 ${pCnt + 1}`;
+                nName = `Rw2Ray By Code-Leafy🍃 ${pCnt + 1}`;
             } else {
-                nName = 'R2ray %data-used%GB / %data-total%GB';
+                nName = 'Rw2Ray %data-used%GB / %data-total%GB';
             }
             subEntries.push({
                 id: genUUID(), type: type, transport: transport,
@@ -1531,7 +1590,7 @@ def check_port_listening(port):
 
 def free_port(port):
     try:
-        subprocess.run(f"fuser -k -9 {port}/tcp", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["fuser", "-k", "-9", f"{port}/tcp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception: pass
 
 def full_cleanup():
@@ -1565,7 +1624,7 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 def get_combined_state():
     try:
         with file_lock:
-            with open(PANEL_STATE_FILE, "r") as f: panel_state = json.load(f)
+            panel_state = _pstate_cache if _pstate_cache else json.load(open(PANEL_STATE_FILE))
     except Exception: panel_state = {}
 
     logs = ""
@@ -1579,11 +1638,11 @@ def get_combined_state():
         for c in panel_state.get("clients", []):
             uuid_id = c.get("id")
             if uuid_id in usage_diffs:
-                c["usage"] = c.get("usage", 0.0) + (usage_diffs[uuid_id] / 1073741824.0)
+                c["usage"] = c.get("usage", 0.0) + (usage_diffs[uuid_id] / BYTES_PER_GB)
 
         telemetry = {
-            "totalRxGb": state.get("total_down", 0) / 1073741824,
-            "totalTxGb": state.get("total_up", 0) / 1073741824,
+            "totalRxGb": state.get("total_down", 0) / BYTES_PER_GB,
+            "totalTxGb": state.get("total_up", 0) / BYTES_PER_GB,
             "speedDownMbps": (state.get("speed_down_bps", 0) * 8) / 1000000.0,
             "speedUpMbps": (state.get("speed_up_bps", 0) * 8) / 1000000.0,
             "connections": state.get("conns", 0),
@@ -1653,15 +1712,15 @@ def generate_sub_for_client(client_id):
     if client_sub and isinstance(client_sub, list) and len(client_sub) > 0:
         for entry in client_sub:
             if entry.get("type") == "proxy":
-                name = apply_placeholders(entry.get("name", "R2ray Auto"))
+                name = apply_placeholders(entry.get("name", "Rw2Ray Auto"))
                 trans = entry.get("transport", "xhttp")
                 ip = entry.get("ipAddress", "").strip() or None
                 lines.append(format_vless_link(client_id, name, trans, ip))
             elif entry.get("type") == "info":
-                name = apply_placeholders(entry.get("name", "R2ray %data-used%GB / %data-total%GB"))
+                name = apply_placeholders(entry.get("name", "Rw2Ray %data-used%GB / %data-total%GB"))
                 lines.append(format_info_link(name))
     else:
-        name = apply_placeholders(client.get("name", "R2ray_Client"))
+        name = apply_placeholders(client.get("name", "Rw2Ray_Client"))
         lines.append(format_vless_link(client_id, f"{name} (xHTTP)", "xhttp"))
         lines.append(format_vless_link(client_id, f"{name} (WS)", "ws"))
 
@@ -1680,11 +1739,10 @@ def handle_api_action(data):
         try: open(XRAY_LOG, "w").close()
         except Exception: pass
 
-def get_auth_cookie(headers):
-    cookies = headers.get('Cookie', '')
-    for c in cookies.split(';'):
+def get_session_cookie(headers):
+    for c in headers.get('Cookie', '').split(';'):
         c = c.strip()
-        if c.startswith('auth='):
+        if c.startswith('sess='):
             return urllib.parse.unquote(c[5:])
     return ""
 
@@ -1693,7 +1751,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
     
     def check_auth(self):
         if not PANEL_PASSWORD: return False
-        return get_auth_cookie(self.headers) == PANEL_PASSWORD
+        return _check_session_token(get_session_cookie(self.headers))
     
     def do_GET(self):
         try:
@@ -1728,7 +1786,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     with state_lock:
                         usage_diffs = state.get("client_usage_bytes", {})
                         if client_id in usage_diffs:
-                            client["usage"] = client.get("usage", 0.0) + (usage_diffs[client_id] / 1073741824.0)
+                            client["usage"] = client.get("usage", 0.0) + (usage_diffs[client_id] / BYTES_PER_GB)
 
                     sub_data = {
                         "client": {
@@ -1761,9 +1819,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-type", "text/html; charset=utf-8")
                 self.end_headers()
-                html = HTML_CONTENT.replace("{{PASS_SETUP}}", "true" if PANEL_PASSWORD else "false")
-                html = html.replace("{{LOGGED_IN}}", "true" if self.check_auth() else "false")
-                self.wfile.write(html.encode())
+                ps = b"true" if PANEL_PASSWORD else b"false"
+                li = b"true" if self.check_auth() else b"false"
+                self.wfile.write(_HTML_BYTES.replace(b"{{PASS_SETUP}}", ps).replace(b"{{LOGGED_IN}}", li))
                 return
                 
             if self.path == '/panel-wiring.js':
@@ -1815,7 +1873,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     old_usages = {c["id"]: c.get("usage", 0.0) for c in old_pstate.get("clients", [])}
                     with state_lock:
                         for cid, diff in state.get("client_usage_bytes", {}).items():
-                            old_usages[cid] = old_usages.get(cid, 0.0) + (diff / 1073741824.0)
+                            old_usages[cid] = old_usages.get(cid, 0.0) + (diff / BYTES_PER_GB)
                         state["client_usage_bytes"] = {}
                     for c in new_state.get("clients", []):
                         if c["id"] in old_usages:
@@ -1843,12 +1901,49 @@ class WebUIHandler(BaseHTTPRequestHandler):
         
     def do_POST(self):
         try:
+            if self.path == '/api/setup':
+                global PANEL_PASSWORD
+                length = int(self.headers.get('Content-Length', 0))
+                data = json.loads(self.rfile.read(length).decode('utf-8'))
+                new_pass = data.get("pass", "")
+                if not PANEL_PASSWORD and new_pass:
+                    PANEL_PASSWORD = new_pass
+                    with file_lock:
+                        try:
+                            with open(PANEL_STATE_FILE, "r") as f: pstate = json.load(f)
+                        except Exception: pstate = {}
+                        if "settings" not in pstate: pstate["settings"] = {}
+                        pstate["settings"]["panelPassword"] = PANEL_PASSWORD
+                        tmp = PANEL_STATE_FILE + ".tmp"
+                        with open(tmp, "w") as f: json.dump(pstate, f, indent=2)
+                        os.rename(tmp, PANEL_STATE_FILE)
+                    tok = _issue_session_token()
+                    self.send_response(200)
+                    self.send_header('Set-Cookie', f'sess={urllib.parse.quote(tok)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=31536000')
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok":true}')
+                else:
+                    self.send_response(400)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok":false}')
+                return
             if self.path == '/api/login':
+                ip = self.client_address[0]
+                if _is_rate_limited(ip):
+                    self.send_response(429)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok":false,"error":"Too many attempts"}')
+                    return
                 length = int(self.headers.get('Content-Length', 0))
                 data = json.loads(self.rfile.read(length).decode())
-                if data.get("pass") == PANEL_PASSWORD:
+                supplied = data.get("pass", "")
+                if PANEL_PASSWORD and hmac.compare_digest(supplied, PANEL_PASSWORD):
+                    tok = _issue_session_token()
                     self.send_response(200)
-                    self.send_header('Set-Cookie', f'auth={urllib.parse.quote(PANEL_PASSWORD)}; Path=/; HttpOnly; Max-Age=31536000')
+                    self.send_header('Set-Cookie', f'sess={urllib.parse.quote(tok)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=31536000')
                     self.send_header("Content-type", "application/json")
                     self.end_headers()
                     self.wfile.write(b'{"ok":true}')
@@ -1892,12 +1987,26 @@ class WebUIHandler(BaseHTTPRequestHandler):
             except: pass
 
 def web_server_thread(port):
-    try: ThreadedHTTPServer(('127.0.0.1', port), WebUIHandler).serve_forever()
-    except Exception: pass
+    while engine_running:
+        try:
+            server = ThreadedHTTPServer(('127.0.0.1', port), WebUIHandler)
+            server.serve_forever()
+        except Exception as e:
+            log_sys_err(f"Web server error on port {port}: {e}")
+            __import__("time").sleep(2)
 
 async def multiplexer(reader, writer):
     try:
-        data = await reader.read(4096)
+        # Read until we have the full request line (handles split TCP segments)
+        buf = b""
+        while len(buf) < 8192:
+            chunk = await reader.read(4096)
+            if not chunk:
+                break
+            buf += chunk
+            if b"\r\n" in buf:
+                break
+        data = buf
         if not data:
             writer.close()
             return
@@ -1976,11 +2085,12 @@ def commit_client_usage():
                 for c in pstate.get("clients", []):
                     uuid_id = c.get("id")
                     if uuid_id in usage_diffs:
-                        c["usage"] = c.get("usage", 0.0) + (usage_diffs[uuid_id] / 1073741824.0)
-            pstate["telemetry"] = {"total_down": d, "total_up": u, "uptime_sec": s, "total_cost": tc}
+                        c["usage"] = c.get("usage", 0.0) + (usage_diffs[uuid_id] / BYTES_PER_GB)
+            pstate["telemetry"] = {"total_down": d, "total_up": u, "uptime_sec": int(s), "total_cost": tc}
             tmp = PANEL_STATE_FILE + ".tmp"
             with open(tmp, "w") as f: json.dump(pstate, f, indent=2)
             os.rename(tmp, PANEL_STATE_FILE)
+            global _pstate_cache; _pstate_cache = pstate
         except Exception:
             if usage_diffs:
                 with state_lock:
@@ -2060,13 +2170,13 @@ def system_monitor_thread():
 
             try:
                 total_d, used_d, free_d = shutil.disk_usage("/")
-                disk_used_gb = used_d / 1073741824.0
-                disk_total_gb = total_d / 1073741824.0
+                disk_used_gb = used_d / BYTES_PER_GB
+                disk_total_gb = total_d / BYTES_PER_GB
             except Exception:
                 disk_used_gb = disk_total_gb = 0
 
             mem_gb = used_mb / 1024.0
-            cost_this_sec = (mem_gb * 0.000231 / 60) * dt + (vcpus * 0.000463 / 60) * dt
+            cost_this_sec = (mem_gb * _COST_MEM_GB_MIN) * dt + (vcpus * _COST_CPU_MIN) * dt
 
             with state_lock:
                 state["cpu_pct"] = cpu_pct
@@ -2077,7 +2187,7 @@ def system_monitor_thread():
                 state["load_avg"] = la
                 state["total_cost"] += cost_this_sec
 
-            if tick % 60 == 0:
+            if tick % 15 == 0:
                 commit_client_usage()
 
         except Exception: pass
@@ -2088,10 +2198,12 @@ def xray_monitor_thread():
     last_fd = None
     last_fu = None
     last_user_stats = {}
+    last_stats_time = time.time()
 
     tick = 0
     while engine_running:
         tick += 1
+        loop_start = time.time()
         is_running = check_xray_running()
         with state_lock: state["is_xray_running"] = is_running
 
@@ -2101,7 +2213,11 @@ def xray_monitor_thread():
                 with state_lock: state["is_xray_running"] = check_xray_running()
 
         if is_running:
-            with state_lock: state["uptime_sec"] += 1
+            now = time.time()
+            elapsed = now - last_stats_time
+            if elapsed <= 0: elapsed = 2.0
+            last_stats_time = now
+            with state_lock: state["uptime_sec"] += elapsed
             try:
                 out = subprocess.check_output(["timeout", "2", XRAY_BIN, "api", "statsquery", f"-server=127.0.0.1:{API_PORT}"], text=True, stderr=subprocess.DEVNULL)
                 stats = []
@@ -2139,13 +2255,13 @@ def xray_monitor_thread():
                 last_fd = fd
                 last_fu = fu
                 
-                egress_cost = (dt_up / 1073741824.0) * 0.05
+                egress_cost = (dt_up / BYTES_PER_GB) * 0.05
 
                 with state_lock:
                     state["total_down"] += dt_down
                     state["total_up"] += dt_up
-                    state["speed_down_bps"] = dt_down
-                    state["speed_up_bps"] = dt_up
+                    state["speed_down_bps"] = dt_down / elapsed
+                    state["speed_up_bps"] = dt_up / elapsed
                     state["total_cost"] += egress_cost
                     
                     if user_usage_diffs:
@@ -2157,7 +2273,8 @@ def xray_monitor_thread():
                     state["speed_down_bps"] = 0
                     state["speed_up_bps"] = 0
 
-        time.sleep(1)
+        elapsed_loop = time.time() - loop_start
+        time.sleep(max(0.0, 2.0 - elapsed_loop))
 
 def generate_xray_config():
     try:
@@ -2176,7 +2293,7 @@ def generate_xray_config():
     for c in clients_data:
         cid = str(c.get("id", "")).strip()
         if c.get("status", 1) == 1 and cid not in seen_ids:
-            if re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$', cid):
+            if _UUID_RE and _UUID_RE.match(cid):
                 seen_ids.add(cid)
                 inb_clients.append({"id": cid, "level": 0, "email": cid})
     
@@ -2267,7 +2384,10 @@ def start_xray():
         try:
             subprocess.check_output([XRAY_BIN, "run", "-test", "-c", CONFIG_FILE], stderr=subprocess.STDOUT, text=True)
         except subprocess.CalledProcessError as e:
-            log_sys_err(f"xray config test failed: {e.output}")
+            log_sys_err(f"xray config test failed (attempt {attempt+1}): {e.output}")
+            stop_xray()
+            time.sleep(1.5)
+            continue
 
         try: subprocess.Popen([XRAY_BIN, "run", "-c", CONFIG_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception: pass
@@ -2290,7 +2410,7 @@ def stop_xray():
 def print_start_banner():
     panel_url = f"https://{RAILWAY_PUBLIC_DOMAIN}/"
     print("\n" + "="*60)
-    print("🚀 R2RAY PANEL STARTED SUCCESSFULLY ON RAILWAY")
+    print("🚀 RW2RAY STARTED SUCCESSFULLY ON RAILWAY")
     print("="*60)
     print(f"🌐 Access Web Panel & Subscriptions: \033[92m\033[4m{panel_url}\033[0m")
     print(f"🔗 Forwarded Xray Endpoint: \033[94m{RAILWAY_PUBLIC_DOMAIN}:443\033[0m")
@@ -2303,8 +2423,9 @@ def handle_exit(signum, frame):
     sys.exit(0)
 
 def main():
-    global engine_running
-    
+    global engine_running, _UUID_RE
+    _UUID_RE = __import__('re').compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
 
@@ -2330,6 +2451,9 @@ def main():
         state["total_up"] = tel.get("total_up", 0)
         state["uptime_sec"] = tel.get("uptime_sec", 0)
         state["total_cost"] = tel.get("total_cost", 0.0)
+        saved_pass = pstate.get("settings", {}).get("panelPassword", "")
+        if saved_pass and not PANEL_PASSWORD:
+            PANEL_PASSWORD = saved_pass
     except Exception: pass
 
     start_xray()
