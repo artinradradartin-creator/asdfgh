@@ -25,6 +25,7 @@ UPSTREAM_REPO = "Code-Leafy/Rw2Ray"
 RAW_BASE = f"https://raw.githubusercontent.com/{UPSTREAM_REPO}/refs/heads/main/"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 _VOLUME = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "")
 DATA_DIR = os.path.join(_VOLUME, "data") if _VOLUME else os.path.join(BASE_DIR, "data")
 LOG_DIR  = os.path.join(_VOLUME, "logs") if _VOLUME else os.path.join(BASE_DIR, "logs")
@@ -1232,7 +1233,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: serializePanelState(), reason })
                 });
-                if(res.status === 401) return (location.href = '/');
+                if(res.status === 401) return (location.href = '/panel');
                 const data = await res.json();
                 if(!data.ok) throw new Error(data.error || 'state sync failed');
             } catch (err) { showToast(`Backend sync failed: ${err.message || err}`, 'error'); } 
@@ -1300,7 +1301,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
         async function getSubscriptionLink(clientId) {
             try {
                 const res = await fetch(`/api/sub/link/${encodeURIComponent(clientId)}`);
-                if(res.status === 401) return (location.href = '/');
+                if(res.status === 401) return (location.href = '/panel');
                 const data = await res.json();
                 if(data.ok && data.link) return data.link;
             } catch(e) {} return null;
@@ -1501,7 +1502,7 @@ HTML_CONTENT = r"""<!DOCTYPE html>
             if(window.initBackendSync && loggedIn) window.initBackendSync();
         };
     </script>
-    <script src="/wiring.js"></script>
+    <script src="/panel/wiring.js"></script>
 </body>
 </html>"""
 _HTML_BYTES = HTML_CONTENT.encode("utf-8")
@@ -1515,7 +1516,7 @@ window.initBackendSync = async function() {
         if(backendSync.syncing) return;
         try {
             let res = await fetch('/api/state');
-            if(res.status === 401) return (location.href = '/');
+            if(res.status === 401) return (location.href = '/panel');
             if(!res.ok) throw new Error('Network error');
             let data = await res.json();
             if(data.ok) {
@@ -1546,7 +1547,7 @@ window.setXrayStatus = async function(action) {
     if(action !== 'clear_logs') showToast('Executing ' + action + '...', 'info');
     try {
         let res = await fetch('/api/action', { method: 'POST', body: JSON.stringify({action}), headers: {'Content-Type': 'application/json'} });
-        if(res.status === 401) return (location.href = '/');
+        if(res.status === 401) return (location.href = '/panel');
         if(res.ok && action !== 'clear_logs') showToast('Command completed: ' + action, 'success');
         else if(!res.ok) showToast('Command failed', 'error');
     } catch(e) { showToast('Network error', 'error'); }
@@ -1831,7 +1832,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b64_content.encode("utf-8"))
                 return
 
-            if self.path in ('/', '/panel', '/panel/'):
+            if self.path in ('/', '/panel', '/panel/', '/login', '/login/', '/admin', '/admin/'):
                 self.send_response(200)
                 self.send_header("Content-type", "text/html; charset=utf-8")
                 self.end_headers()
@@ -1840,7 +1841,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 self.wfile.write(_HTML_BYTES.replace(b"{{PASS_SETUP}}", ps).replace(b"{{LOGGED_IN}}", li))
                 return
 
-            if self.path == '/wiring.js':
+            if self.path == '/panel/wiring.js':
                 self.send_response(200)
                 self.send_header("Content-type", "application/javascript")
                 self.end_headers()
@@ -2462,7 +2463,7 @@ def stop_xray():
     except Exception: pass
 
 def print_start_banner():
-    panel_url = f"https://{RAILWAY_PUBLIC_DOMAIN}/"
+    panel_url = f"https://{RAILWAY_PUBLIC_DOMAIN}/panel"
     print("\n" + "="*60)
     print("🚀 RW2RAY STARTED SUCCESSFULLY ON RAILWAY")
     print("="*60)
